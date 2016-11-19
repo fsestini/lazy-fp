@@ -1,4 +1,4 @@
-module Compiler where
+module TemplateInstantiation.Compiler where
 
 import Syntax
 import Heap
