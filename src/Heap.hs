@@ -1,10 +1,15 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+
 module Heap(
   hInitial,
   hAlloc,
   hUpdate,
+  hUpdate',
   hFree,
   hLookup,
+  hLookup',
   hAddresses,
+  hAddresses',
   hSize,
   hNull,
   hIsNull,
@@ -24,43 +29,67 @@ remove ((k,v):xs) key | k == key = xs
 
 -- number of objects in the heap, list of unused addresses, association list
 type Addr = Int
-type Heap a = (Int, [Addr], [(Addr, a)])
+data Heap a = Heap { count :: Int,
+                     freeAddrs :: [Addr],
+                     assocList :: [(Addr,a)] }
+              deriving (Eq, Show)
 
 type HeapState a b = State (Heap a) b
 
+mapSnd f (x,y) = (x,f y)
+
+instance Functor Heap where
+  fmap f (Heap count unused assocList) =
+    Heap count unused (map (mapSnd f) assocList)
+
 hInitial :: Heap a
-hInitial = (0, [1..], [])
+hInitial = Heap 0 [1..] []
 
 -- Modification functions
 hAlloc :: a -> HeapState a Addr
 hAlloc node = do
-  (size, next : free, cts) <- get
-  put (size+1, free, (next,node):cts)
+  Heap size (next : free) cts <- get
+  put (Heap (size+1) free ((next,node) : cts))
   return next
 
 hUpdate :: Addr -> a -> HeapState a ()
 hUpdate addr node = do
-  (size, free, cts) <- get
-  put (size, free, (addr, node) : remove cts addr)
+  Heap size free cts <- get
+  put (Heap size free ((addr, node) : remove cts addr))
   return ()
+
+hUpdate' :: Addr -> a -> Heap a -> Heap a
+hUpdate' addr x = execState (hUpdate addr x)
 
 hFree :: Addr -> HeapState a ()
 hFree addr = do
-  (size, free, cts) <- get
-  put (size - 1, addr : free, remove cts addr)
+  Heap size free cts <- get
+  put (Heap (size - 1) (addr : free) (remove cts addr))
   return ()
+
+hLookup' :: Addr -> HeapState a a
+hLookup' addr = do
+  (Heap _ _ cts) <- get
+  return $ fromMaybe err (lookup addr cts)
+  where
+    err = error $ "can't find node " ++ show addr ++ " in the heap"
 
 -- Querying functions
 hLookup :: Heap a -> Addr -> a
-hLookup (_, _, cts) addr = fromMaybe err $ lookup addr cts
+hLookup (Heap _ _ cts) addr = fromMaybe err $ lookup addr cts
   where
     err = error $ "can't find node " ++ show addr ++ " in the heap"
 
 hAddresses :: Heap a -> [Addr]
-hAddresses (_, _, cts) = map fst cts
+hAddresses (Heap _ _ cts) = map fst cts
+
+hAddresses' :: HeapState a [Addr]
+hAddresses' = do
+  heap <- get
+  return $ hAddresses heap
 
 hSize :: Heap a -> Int
-hSize (size, _, _) = size
+hSize (Heap size _ _) = size
 
 hNull :: Addr
 hNull = 0
