@@ -7,15 +7,6 @@ import Syntax
 import Heap
 import GMachine.Structures
 
-data Tree a = Leaf a | Node (Tree a) (Tree a) deriving Show
-
--- instance (Pretty a) => Pretty (Tree a) where
---   pPrint (Leaf a) = text "Leaf: " <> pPrint a
---   pPrint (Node tree1 tree2) = vcat [ text "Node:"
---                                    , nest 2 (pPrint tree1)
---                                    , nest 2 (pPrint tree2)]
---
-
 --------------------------------------------------------------------------------
 -- Instructions
 
@@ -25,7 +16,8 @@ pInstruction (PushGlobal i) = text $ "PushGlobal " ++ i
 pInstruction (PushInt i) = text $ "PushInt " ++ show i
 pInstruction (Push i) = text $ "Push " ++ show i
 pInstruction Mkap = text "Mkap"
-pInstruction (Slide i) = text $ "Slide " ++ show i
+pInstruction (Update i) = text $ "Update " ++ show i
+pInstruction (Pop i) = text $ "Pop " ++ show i
 
 pInstructions :: GMCode -> Doc
 pInstructions = hsep . punctuate semi . fmap pInstruction
@@ -49,6 +41,7 @@ pNode s a (NNum n) = int n
 pNode s a (NGlobal n g) = cat [text "Global ", text v]
   where v = head [n | (n,b) <- globals s, a == b]
 pNode s a (NAp a1 a2) = hsep [text "Ap", pAddress a1, pAddress a2]
+pNode s a (NInd addr) = hsep [text "Ind", pAddress addr]
 
 --------------------------------------------------------------------------------
 -- State

@@ -8,7 +8,8 @@ data Instruction = Unwind
                  | PushInt Int
                  | Push Int
                  | Mkap
-                 | Slide Int
+                 | Update Int
+                 | Pop Int
                  deriving (Eq,Show)
 
 data Node = NNum Int
@@ -16,6 +17,7 @@ data Node = NNum Int
           | NGlobal Int GMCode  -- Number of arguments + code to execute
                                 -- This replaces the supercombinator nodes,
                                 -- which instead held a template of the superc.
+          | NInd Addr
           deriving (Eq, Show)
 
 type GMStats = Int

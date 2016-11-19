@@ -53,6 +53,9 @@ popInstruction = do
   fromStTrans $ \s -> s { code = cs }
   return c
 
+putGlobals :: (Name, Addr) -> GMStateMonad ()
+putGlobals p = fromStTrans $ \s -> s { globals = p : globals s }
+
 changeHeap :: HeapState Node a -> GMStateMonad a
 changeHeap hs = do
   h <- getHeap
@@ -91,7 +94,17 @@ dispatch Unwind = unwind
 dispatch (PushInt n) = pushInt n
 dispatch (Push n) = push n
 dispatch Mkap = mkap
-dispatch (Slide n) = slide n
+dispatch (Update n) = update n
+dispatch (Pop n) = pop n
+
+update :: Int -> GMStateMonad ()
+update n = do
+  a <- popStack
+  an <- peekStack n
+  changeHeap $ hUpdate an (NInd a)
+
+pop :: Int -> GMStateMonad ()
+pop n = replicateM_ n popStack
 
 pushGlobal :: Name -> GMStateMonad ()
 pushGlobal f = do
@@ -103,8 +116,13 @@ pushGlobal f = do
 
 pushInt :: Int -> GMStateMonad ()
 pushInt i = do
-  addr <- changeHeap (hAlloc (NNum i))
-  pushOnStack addr
+  globs <- getGlobals
+  case lookup (show i) globs of
+    Just a -> pushOnStack a
+    Nothing -> do
+      a <- changeHeap (hAlloc (NNum i))
+      putGlobals (show i, a)
+      pushOnStack a
 
 mkap :: GMStateMonad ()
 mkap = do
@@ -131,6 +149,7 @@ unwind = do
   case node of
     (NNum node) -> return ()
     (NAp a1 a2) -> pushOnStack a1 >> setCode [Unwind]
+    (NInd addr) -> popStack >> pushOnStack addr >> setCode [Unwind]
     (NGlobal arity c) -> do
       st <- getStack
       if length st < arity

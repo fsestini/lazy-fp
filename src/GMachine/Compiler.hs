@@ -42,7 +42,8 @@ compileSc (name, args, body) =
   (name, length args, compileR body (zip args [0..]))
 
 compileR :: CoreExpr -> [(Name, Int)] -> GMCode
-compileR e env = compileC e env ++ [Slide (length env + 1), Unwind]
+compileR e env = compileC e env ++ [Update n, Pop n, Unwind]
+  where n = length env
 
 lkup :: [(Name, Int)] -> Name -> Int
 lkup rho x = fromMaybe (error err) $ lookup x rho
