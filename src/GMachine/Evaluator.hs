@@ -134,8 +134,7 @@ mkap = do
 push :: Int -> GMStateMonad ()
 push n = do
   addr <- peekStack $ n + 1
-  (NAp a1 a2) <- changeHeap $ hLookup' addr
-  pushOnStack a2
+  pushOnStack addr
 
 slide :: Int -> GMStateMonad ()
 slide n = do
@@ -154,4 +153,15 @@ unwind = do
       st <- getStack
       if length st < arity
         then error "unwinding too few arguments"
-        else setCode c
+        else rearrange arity >> setCode c
+
+rearrange :: Int -> GMStateMonad ()
+rearrange n = do
+  h  <- getHeap
+  as <- getStack
+  let as' = map (getArg . hLookup h) (tail as)
+  setStack $ take n as' ++ drop n as
+
+getArg :: Node -> Addr
+getArg (NAp _ a) = a
+getArg _ = error "not an Ap node in getArg"
