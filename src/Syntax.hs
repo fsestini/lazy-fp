@@ -1,7 +1,5 @@
 module Syntax where
 
-import PrettyPrint.ISeq
-
 type Name = String
 type CtorTag = Int
 type CtorArity = Int

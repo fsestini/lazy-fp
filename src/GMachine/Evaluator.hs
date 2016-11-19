@@ -96,6 +96,11 @@ dispatch (Push n) = push n
 dispatch Mkap = mkap
 dispatch (Update n) = update n
 dispatch (Pop n) = pop n
+dispatch (Alloc n) = alloc n
+dispatch (Slide n) = slide n
+
+alloc :: Int -> GMStateMonad ()
+alloc n = replicateM_ n $ changeHeap (hAlloc $ NInd hNull) >>= pushOnStack
 
 update :: Int -> GMStateMonad ()
 update n = do
@@ -133,7 +138,7 @@ mkap = do
 
 push :: Int -> GMStateMonad ()
 push n = do
-  addr <- peekStack $ n + 1
+  addr <- peekStack n
   pushOnStack addr
 
 slide :: Int -> GMStateMonad ()

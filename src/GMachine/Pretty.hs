@@ -18,6 +18,8 @@ pInstruction (Push i) = text $ "Push " ++ show i
 pInstruction Mkap = text "Mkap"
 pInstruction (Update i) = text $ "Update " ++ show i
 pInstruction (Pop i) = text $ "Pop " ++ show i
+pInstruction (Alloc i) = text $ "Alloc " ++ show i
+pInstruction (Slide i) = text $ "Slide " ++ show i
 
 pInstructions :: GMCode -> Doc
 pInstructions = hsep . punctuate semi . fmap pInstruction

@@ -10,6 +10,8 @@ data Instruction = Unwind
                  | Mkap
                  | Update Int
                  | Pop Int
+                 | Alloc Int
+                 | Slide Int
                  deriving (Eq,Show)
 
 data Node = NNum Int
