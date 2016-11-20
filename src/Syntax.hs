@@ -1,5 +1,7 @@
 module Syntax where
 
+import AssocList
+
 type Name = String
 type CtorTag = Int
 type CtorArity = Int
@@ -30,6 +32,8 @@ rhssOf = map snd
 
 type Alter a = (CtorTag, [a], Expr a)
 type CoreAlt = Alter Name
+
+type CoreBinders = Assoc Name CoreExpr
 
 isAtomicExpr :: Expr a -> Bool
 isAtomicExpr (EVar v) = True
