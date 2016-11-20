@@ -3,7 +3,7 @@ module GMachine.Pretty where
 --- import Text.PrettyPrint.HughesPJClass
 import Text.PrettyPrint
 
-import Syntax
+import Syntax hiding (Div)
 import Heap
 import GMachine.Structures
 
@@ -20,6 +20,11 @@ pInstruction (Update i) = text $ "Update " ++ show i
 pInstruction (Pop i) = text $ "Pop " ++ show i
 pInstruction (Alloc i) = text $ "Alloc " ++ show i
 pInstruction (Slide i) = text $ "Slide " ++ show i
+pInstruction Eval = text "Eval"
+pInstruction Add  = text "Add"
+pInstruction Sub  = text "Sub"
+pInstruction Mul  = text "Mul"
+pInstruction Div  = text "Div"
 
 pInstructions :: GMCode -> Doc
 pInstructions = hsep . punctuate semi . fmap pInstruction
@@ -49,7 +54,28 @@ pNode s a (NInd addr) = hsep [text "Ind", pAddress addr]
 -- State
 
 pState :: GMState -> Doc
-pState s = vcat [pStack s, pInstructions (code s)]
+pState s = vcat [pStack s, pDump s, pInstructions (code s)]
+
+--------------------------------------------------------------------------------
+-- Dump
+
+pDump :: GMState -> Doc
+pDump s = vcat $ text "Dump:[" : map (nest 2 . pDumpItem) (reverse . dump $ s)
+             ++ [text "]"]
+
+pDumpItem :: GMDumpItem -> Doc
+pDumpItem (code, stack) = hsep [
+    text "<",
+    braces $ shortP 3 semi $ map pInstruction code,
+    brackets $ shortP 3 comma $ map pAddress stack,
+    text ">"
+  ]
+
+shortP :: Int -> Doc -> [Doc] -> Doc
+shortP n separator list = hsep $ punctuate separator items
+  where
+    items | length list > n = take n list ++ [text "..."]
+          | otherwise       = list
 
 --------------------------------------------------------------------------------
 -- Supercombinators
@@ -78,4 +104,4 @@ pResults states@(s : ss) =
       ++ [text "Stats: "            <> pStats (last states)]
   where
     asd :: (Int, GMState) -> Doc
-    asd (n,s) = vcat [text $ "State " ++ show n, nest 2 . pState $ s]
+    asd (n,s) = vcat [text $ "State " ++ show n, nest 2 . pState $ s, text ""]

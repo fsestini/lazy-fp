@@ -18,7 +18,7 @@ type GMCompiledSc = (Name, Int, GMCode)
 -- sequence finds the global main and then evaluates it. The heap is initialized
 -- so that it contains a node for each global declared.
 compile :: CoreProgram -> GMState
-compile program = GMState initialCode [] heap globals statInitial
+compile program = GMState initialCode [] [] heap globals statInitial
   where
     (heap, globals) = buildInitialHeap program
 
@@ -29,7 +29,12 @@ buildInitialHeap program = swap $ runState (forM compiled allocateSc) hInitial
     compiled = map compileSc (preludeDefs ++ program) ++ compiledPrimitives
 
 compiledPrimitives :: [GMCompiledSc]
-compiledPrimitives = []
+compiledPrimitives = [
+    ("+", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
+    ("-", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind]),
+    ("*", 2, [Push 1, Eval, Push 1, Eval, Mul, Update 2, Pop 2, Unwind]),
+    ("/", 2, [Push 1, Eval, Push 1, Eval, GMachine.Structures.Div, Update 2, Pop 2, Unwind])
+  ]
 
 -- Allocates a new global node for its compiled supercombinator argument
 allocateSc :: GMCompiledSc -> GMHeapState (Name, Addr)
@@ -58,7 +63,13 @@ compileC (EAp e0 e1) env =
   compileC e1 env ++ compileC e0 (shiftEnv 1 env) ++ [Mkap]
 compileC (ELet NonRecursive defs e) env = compileLet    defs e env
 compileC (ELet Recursive defs e) env    = compileLetRec defs e env
-compileC (EBinOp e1 e2 e3) env = undefined
+compileC (EBinOp binop e1 e2) env =
+  compileC e2 env ++ compileC e1 (shiftEnv 1 env) ++ [code, Mkap, Mkap]
+  where code = case binop of
+          Plus       -> PushGlobal "+"
+          Minus      -> PushGlobal "-"
+          Mult       -> PushGlobal "*"
+          Syntax.Div -> PushGlobal "/"
 compileC (ECtor e1 e2) env = undefined
 compileC (ECase e1 e2) env = undefined
 compileC (ELam e1 e2) env = undefined

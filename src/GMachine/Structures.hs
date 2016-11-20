@@ -12,6 +12,8 @@ data Instruction = Unwind
                  | Pop Int
                  | Alloc Int
                  | Slide Int
+                 | Eval
+                 | Add | Sub | Mul | Div
                  deriving (Eq,Show)
 
 data Node = NNum Int
@@ -27,16 +29,20 @@ statInitial = 0 :: Int
 statIncSteps s = s + 1
 statGetSteps s = s
 
-type GMCode = [Instruction]
-type GMStack = [Addr]
-type GMHeap = Heap Node
+type GMCode    = [Instruction]
+type GMStack   = [Addr]
+type GMHeap    = Heap Node
 type GMGlobals = [(Name, Addr)]
+type GMDump    = [GMDumpItem]
+
+type GMDumpItem = (GMCode, GMStack)
 
 -- State of the G-Machine
 data GMState = GMState {
-  code :: GMCode,
-  stack :: GMStack,
-  heap :: GMHeap,
+  code    :: GMCode,
+  stack   :: GMStack,
+  dump    :: GMDump,
+  heap    :: GMHeap,
   globals :: GMGlobals,
-  stats :: GMStats
+  stats   :: GMStats
 }

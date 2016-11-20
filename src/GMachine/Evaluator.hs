@@ -5,9 +5,10 @@ module GMachine.Evaluator(
 
 import GMachine.Structures
 import Control.Monad.State.Lazy
-import Syntax
+import Syntax hiding (Div)
 import Heap
 import Data.Maybe
+import Control.Arrow
 
 --------------------------------------------------------------------------------
 -- Evaluation monad and related utility functions
@@ -20,6 +21,8 @@ fromStTrans f = do
   put $ f s
 
 getStack = fmap stack get
+getDump  = fmap dump  get
+getCode  = fmap code  get
 
 getGlobals :: GMStateMonad GMGlobals
 getGlobals = fmap globals get
@@ -33,14 +36,26 @@ setCode c = get >>= \s -> put $ s { code = c }
 setStack :: GMStack -> GMStateMonad ()
 setStack st = get >>= \s -> put $ s { stack = st }
 
+setDump :: GMDump -> GMStateMonad ()
+setDump d = get >>= \s -> put $ s { dump = d }
+
 pushOnStack :: Addr -> GMStateMonad ()
 pushOnStack addr = fromStTrans $ \s -> s { stack = addr : stack s }
+
+pushOnDump :: GMDumpItem -> GMStateMonad ()
+pushOnDump di = fromStTrans $ \s -> s { dump = di : dump s }
 
 popStack :: GMStateMonad Addr
 popStack = do
   (a : as) <- fmap stack get
   setStack as
   return a
+
+popDump :: GMStateMonad GMDumpItem
+popDump = do
+  (d : ds) <- getDump
+  setDump ds
+  return d
 
 peekStack :: Int -> GMStateMonad Addr
 peekStack n = do
@@ -98,6 +113,19 @@ dispatch (Update n) = update n
 dispatch (Pop n) = pop n
 dispatch (Alloc n) = alloc n
 dispatch (Slide n) = slide n
+dispatch Eval = eval'
+dispatch Add = arithmetic2 (+)
+dispatch Sub = arithmetic2 (-)
+dispatch Mul = arithmetic2 (*)
+dispatch Div = arithmetic2 div
+
+eval' :: GMStateMonad ()
+eval' = do
+  (a : s) <- getStack
+  i       <- getCode
+  pushOnDump (i,s)
+  setStack [a]
+  setCode [Unwind]
 
 alloc :: Int -> GMStateMonad ()
 alloc n = replicateM_ n $ changeHeap (hAlloc $ NInd hNull) >>= pushOnStack
@@ -151,7 +179,11 @@ unwind = do
   a <- peekStack 0
   node <- changeHeap $ hLookup' a
   case node of
-    (NNum node) -> return ()
+    (NNum node) -> do
+      d <- getDump
+      case listToMaybe d of
+        Just (co, st) -> setCode co >> setStack (a : st) >> setDump (tail d)
+        Nothing -> return ()
     (NAp a1 a2) -> pushOnStack a1 >> setCode [Unwind]
     (NInd addr) -> popStack >> pushOnStack addr >> setCode [Unwind]
     (NGlobal arity c) -> do
@@ -170,3 +202,35 @@ rearrange n = do
 getArg :: Node -> Addr
 getArg (NAp _ a) = a
 getArg _ = error "not an Ap node in getArg"
+
+--------------------------------------------------------------------------------
+-- Generic primitive operations
+
+type Boxing   a = a    -> GMStateMonad ()
+type Unboxing a = Addr -> GMStateMonad a
+
+primitive1 :: Boxing b -> Unboxing a -> (a -> b) -> GMStateMonad ()
+primitive1 box unbox op = op <$> (popStack >>= unbox) >>= box
+
+primitive2 :: Boxing b -> Unboxing a -> (a -> a -> b) -> GMStateMonad ()
+primitive2 box unbox op =
+  op <$> (popStack >>= unbox) <*> (popStack >>= unbox) >>= box
+
+--------------------------------------------------------------------------------
+-- Arithmetic instructions
+
+arithmetic1 :: (Int -> Int) -> GMStateMonad ()
+arithmetic1 = primitive1 boxInteger unboxInteger
+
+arithmetic2 :: (Int -> Int -> Int) -> GMStateMonad ()
+arithmetic2 = primitive2 boxInteger unboxInteger
+
+boxInteger :: Int -> GMStateMonad ()
+boxInteger n = do
+  a <- changeHeap $ hAlloc (NNum n)
+  pushOnStack a
+
+unboxInteger :: Addr -> GMStateMonad Int
+unboxInteger addr = do
+  (NNum i) <- changeHeap $ hLookup' addr
+  return i
