@@ -9,6 +9,7 @@ import Syntax hiding (Div)
 import Heap
 import Data.Maybe
 import Control.Arrow
+import AssocList
 
 --------------------------------------------------------------------------------
 -- Evaluation monad and related utility functions
@@ -24,6 +25,9 @@ getStack = fmap stack get
 getDump  = fmap dump  get
 getCode  = fmap code  get
 
+appendOutput :: String -> GMStateMonad ()
+appendOutput o = fromStTrans $ \s -> s { output = output s ++ o }
+
 getGlobals :: GMStateMonad GMGlobals
 getGlobals = fmap globals get
 
@@ -32,6 +36,9 @@ getHeap = fmap heap get
 
 setCode :: GMCode -> GMStateMonad ()
 setCode c = get >>= \s -> put $ s { code = c }
+
+prependCode :: GMCode -> GMStateMonad ()
+prependCode c = fromStTrans $ \s -> s { code = c ++ code s }
 
 setStack :: GMStack -> GMStateMonad ()
 setStack st = get >>= \s -> put $ s { stack = st }
@@ -118,6 +125,35 @@ dispatch Add = arithmetic2 (+)
 dispatch Sub = arithmetic2 (-)
 dispatch Mul = arithmetic2 (*)
 dispatch Div = arithmetic2 div
+dispatch Print = evalPrint
+dispatch (Split n) = split n
+dispatch (Pack tag arity) = pack tag arity
+dispatch (CaseJump alternatives) = casejump alternatives
+
+casejump :: Assoc Int GMCode -> GMStateMonad ()
+casejump alterns = do
+  (NConstr tag addrs) <- peekStack 0 >>= changeHeap . hLookup'
+  let branch = aLookup alterns tag (error "casejump failed")
+  prependCode branch
+
+pack :: CtorTag -> CtorArity -> GMStateMonad ()
+pack tag arity = do
+  addrs <- replicateM arity popStack
+  changeHeap (hAlloc (NConstr tag addrs)) >>= pushOnStack
+
+split :: Int -> GMStateMonad ()
+split n = do
+  (NConstr tag addrs) <- popStack >>= changeHeap . hLookup'
+  forM_ (reverse addrs) pushOnStack
+
+evalPrint :: GMStateMonad ()
+evalPrint = do
+  node <- popStack >>= changeHeap . hLookup'
+  case node of
+    (NNum x)            -> appendOutput $ show x
+    (NConstr tag addrs) -> prependCode (concatMap (const [Eval, Print]) addrs)
+                           >> forM_ (reverse addrs) pushOnStack
+    _                   -> error "evalPrint failed"
 
 eval' :: GMStateMonad ()
 eval' = do
@@ -139,13 +175,24 @@ update n = do
 pop :: Int -> GMStateMonad ()
 pop n = replicateM_ n popStack
 
-pushGlobal :: Name -> GMStateMonad ()
-pushGlobal f = do
+pushGlobal :: GlobalName -> GMStateMonad ()
+pushGlobal (Left f) = do
   globs <- getGlobals
   let a = fromMaybe (error $ err f) $ lookup f globs
   pushOnStack a
   where
     err g = "Undeclared global: " ++ g
+pushGlobal (Right (tag, arity)) = do
+  globs <- getGlobals
+  let name = "Pack{" ++ show tag ++ "," ++ show arity ++ "}"
+  let a = lookup name globs
+  case a of
+    (Just addr) -> pushOnStack addr
+    Nothing -> do
+      adr <- changeHeap $ hAlloc (NGlobal arity
+        [Pack tag arity, Update 0, Unwind])
+      putGlobals (name, adr)
+      pushOnStack adr
 
 pushInt :: Int -> GMStateMonad ()
 pushInt i = do
@@ -179,19 +226,21 @@ unwind = do
   a <- peekStack 0
   node <- changeHeap $ hLookup' a
   case node of
-    (NNum node) -> do
-      d <- getDump
-      case listToMaybe d of
-        Just (co, st) -> setCode co >> setStack (a : st) >> setDump (tail d)
-        Nothing -> return ()
+    (NNum _)      -> maybePopDump a
+    (NConstr _ _) -> maybePopDump a
     (NAp a1 a2) -> pushOnStack a1 >> setCode [Unwind]
     (NInd addr) -> popStack >> pushOnStack addr >> setCode [Unwind]
     (NGlobal arity c) -> do
       st <- getStack
-      if length st < arity
-        then error "unwinding too few arguments"
+      if (length st - 1) < arity
+        then maybePopDump (last st)
         else rearrange arity >> setCode c
--- TODO new unwind evaluation rule !!!!!!!!!!!!!!!!!!!!!!!
+  where
+    maybePopDump a = do
+      d <- getDump
+      case listToMaybe d of
+        Just (co, st) -> setCode co >> setStack (a : st) >> setDump (tail d)
+        Nothing -> return ()
 
 rearrange :: Int -> GMStateMonad ()
 rearrange n = do

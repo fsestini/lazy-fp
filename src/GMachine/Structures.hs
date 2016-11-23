@@ -3,8 +3,10 @@ module GMachine.Structures where
 import Heap
 import Syntax
 
+type GlobalName = Either Name (CtorTag, CtorArity)
+
 data Instruction = Unwind
-                 | PushGlobal Name
+                 | PushGlobal GlobalName
                  | PushInt Int
                  | Push Int
                  | Mkap
@@ -14,6 +16,10 @@ data Instruction = Unwind
                  | Slide Int
                  | Eval
                  | Add | Sub | Mul | Div
+                 | Pack CtorTag CtorArity
+                 | CaseJump [(Int, GMCode)]
+                 | Split Int
+                 | Print
                  deriving (Eq,Show)
 
 data Node = NNum Int
@@ -22,6 +28,7 @@ data Node = NNum Int
                                 -- This replaces the supercombinator nodes,
                                 -- which instead held a template of the superc.
           | NInd Addr
+          | NConstr CtorTag [Addr]
           deriving (Eq, Show)
 
 type GMStats = Int
@@ -34,11 +41,13 @@ type GMStack   = [Addr]
 type GMHeap    = Heap Node
 type GMGlobals = [(Name, Addr)]
 type GMDump    = [GMDumpItem]
+type GMOutput  = String
 
 type GMDumpItem = (GMCode, GMStack)
 
 -- State of the G-Machine
 data GMState = GMState {
+  output  :: GMOutput,
   code    :: GMCode,
   stack   :: GMStack,
   dump    :: GMDump,

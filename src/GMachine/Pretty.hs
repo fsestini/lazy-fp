@@ -12,7 +12,9 @@ import GMachine.Structures
 
 pInstruction :: Instruction -> Doc
 pInstruction Unwind = text "Unwind"
-pInstruction (PushGlobal i) = text $ "PushGlobal " ++ i
+pInstruction (PushGlobal (Left i)) = text $ "PushGlobal " ++ i
+pInstruction (PushGlobal (Right (t,a))) =
+  text $ "PushGlobal Pack{" ++ show t ++ "," ++ show a ++ "}"
 pInstruction (PushInt i) = text $ "PushInt " ++ show i
 pInstruction (Push i) = text $ "Push " ++ show i
 pInstruction Mkap = text "Mkap"
@@ -25,6 +27,10 @@ pInstruction Add  = text "Add"
 pInstruction Sub  = text "Sub"
 pInstruction Mul  = text "Mul"
 pInstruction Div  = text "Div"
+pInstruction (Pack t a) = hsep [text "Pack", int t, int a]
+pInstruction (CaseJump _) = text "CaseJump"
+pInstruction (Split n) = text $ "Split " ++ show n
+pInstruction Print = text "Print"
 
 pInstructions :: GMCode -> Doc
 pInstructions = hsep . punctuate semi . fmap pInstruction
@@ -45,16 +51,25 @@ showStackItem s a = cat [pAddress a, text ": ", pNode s a (hLookup (heap s) a)]
 
 pNode :: GMState -> Addr -> Node -> Doc
 pNode s a (NNum n) = int n
-pNode s a (NGlobal n g) = cat [text "Global ", text v]
+pNode s a (NGlobal n g) = hsep [text "Global", text v, parens (int n)]
   where v = head [n | (n,b) <- globals s, a == b]
 pNode s a (NAp a1 a2) = hsep [text "Ap", pAddress a1, pAddress a2]
 pNode s a (NInd addr) = hsep [text "Ind", pAddress addr]
+pNode s a (NConstr tag addrs) =
+  hsep $ [text "Ctor", int tag]
+  ++ [brackets (hsep $ punctuate comma (map pAddress addrs))]
 
 --------------------------------------------------------------------------------
 -- State
 
 pState :: GMState -> Doc
-pState s = vcat [pStack s, pDump s, pInstructions (code s)]
+pState s = vcat [pOutput s, pStack s, pDump s, pInstructions (code s)]
+
+--------------------------------------------------------------------------------
+-- Output
+
+pOutput :: GMState -> Doc
+pOutput s = text "Output: \"" <> text (output s) <> text "\""
 
 --------------------------------------------------------------------------------
 -- Dump
