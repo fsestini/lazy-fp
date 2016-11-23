@@ -94,7 +94,8 @@ compiledPrimitives = [
     ("+", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
     ("-", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind]),
     ("*", 2, [Push 1, Eval, Push 1, Eval, Mul, Update 2, Pop 2, Unwind]),
-    ("/", 2, [Push 1, Eval, Push 1, Eval, GMachine.Structures.Div, Update 2, Pop 2, Unwind])
+    ("/", 2, [Push 1, Eval, Push 1, Eval, GMachine.Structures.Div, Update 2, Pop 2, Unwind]),
+    ("primComp", 2, [Push 1, Eval, Push 1, Eval, Comp, Update 2, Pop 2, Unwind])
   ]
 
 -- Allocates a new global node for its compiled supercombinator argument
@@ -129,15 +130,18 @@ compilee (EVar x) = strictWrap $ inNonStrictMode $ do
  if x `elem` map fst env
    then return [Push $ lkup env x]
    else return [PushGlobal $ Left x]
-compilee (EAp e0 e1) = case isFullyAppliedCtor (EAp e0 e1) of
+compilee e@(EAp e0 e1) = case isFullyAppliedCtor e of
   Just (t,a,exprs) -> compileFullyAppliedCtor t a exprs
-  Nothing          -> applicationCompilation e0 e1
+  Nothing          -> case isFullyAppliedPrimitiveComparison e of
+    Just (a1, a2)  -> compilePrimComp a1 a2
+    Nothing        -> applicationCompilation e0 e1
 compilee (ECase e alts) =
   branchMode (compileCase e alts) (error "compiling case in non-strict scheme")
 compilee (ECtor t a) = if a == 0
   then compileFullyAppliedCtor t a []
   else return [PushGlobal $ Right (t,a)]
 compilee (ELam e1 e2) = undefined
+compilee EPrimComp = strictWrap $ return [PushGlobal $ Left "primComp"]
 
 strictWrap :: (forall m . CMonad m GMCode) -> CMonad n GMCode
 strictWrap m = branchMode (fmap (++ [Eval]) m) m
@@ -145,6 +149,17 @@ strictWrap m = branchMode (fmap (++ [Eval]) m) m
 applicationCompilation :: CoreExpr -> CoreExpr -> CMonad m GMCode
 applicationCompilation e0 e1 = strictWrap $ inNonStrictMode $
   compilee e1 <++> compilee e0 `inShiftedEnv` 1 <++> pure [Mkap]
+
+--------------------------------------------------------------------------------
+-- Primitive integer comparison compilation
+
+isFullyAppliedPrimitiveComparison :: CoreExpr -> Maybe (CoreExpr, CoreExpr)
+isFullyAppliedPrimitiveComparison (EAp (EAp EPrimComp a1) a2) = Just (a1,a2)
+isFullyAppliedPrimitiveComparison _ = Nothing
+
+compilePrimComp :: CoreExpr -> CoreExpr -> CMonad n GMCode
+compilePrimComp a1 a2 = compilee a2 <++> compilee a1 `inShiftedEnv` 1 <++>
+  branchMode (return [Comp]) (return [PushGlobal $ Left "primComp", Mkap, Mkap])
 
 --------------------------------------------------------------------------------
 -- Case expression and constructors compilation

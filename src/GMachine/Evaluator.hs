@@ -123,6 +123,7 @@ dispatch Add = arithmetic2 (+)
 dispatch Sub = arithmetic2 (-)
 dispatch Mul = arithmetic2 (*)
 dispatch Div = arithmetic2 div
+dispatch Comp = boolean2 (==)
 dispatch Print = evalPrint
 dispatch (Split n) = split n
 dispatch (Pack tag arity) = pack tag arity
@@ -279,3 +280,17 @@ unboxInteger :: Addr -> GMStateMonad Int
 unboxInteger addr = do
   (NNum i) <- changeHeap $ hLookup' addr
   return i
+
+--------------------------------------------------------------------------------
+-- Boolean operations
+
+boxBoolean :: Bool -> GMStateMonad ()
+boxBoolean b = do
+  a <- changeHeap $ hAlloc (NConstr bRepr [])
+  pushOnStack a
+  where
+    bRepr | b = 2         -- <2> is true
+          | otherwise = 1 -- <1> is false
+
+boolean2 :: (Int -> Int -> Bool) -> GMStateMonad ()
+boolean2 = primitive2 boxBoolean unboxInteger

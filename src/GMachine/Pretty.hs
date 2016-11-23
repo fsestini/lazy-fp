@@ -31,6 +31,7 @@ pInstruction (Pack t a) = hsep [text "Pack", int t, int a]
 pInstruction (CaseJump _) = text "CaseJump"
 pInstruction (Split n) = text $ "Split " ++ show n
 pInstruction Print = text "Print"
+pInstruction Comp = text "Comp"
 
 pInstructions :: GMCode -> Doc
 pInstructions = hsep . punctuate semi . fmap pInstruction
