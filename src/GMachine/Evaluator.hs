@@ -8,7 +8,6 @@ import Control.Monad.State.Lazy
 import Syntax hiding (Div)
 import Heap
 import Data.Maybe
-import Control.Arrow
 import AssocList
 
 --------------------------------------------------------------------------------
@@ -21,8 +20,13 @@ fromStTrans f = do
   s <- get
   put $ f s
 
+getStack :: GMStateMonad GMStack
 getStack = fmap stack get
+
+getDump :: GMStateMonad GMDump
 getDump  = fmap dump  get
+
+getCode :: GMStateMonad GMCode
 getCode  = fmap code  get
 
 appendOutput :: String -> GMStateMonad ()
@@ -57,12 +61,6 @@ popStack = do
   (a : as) <- fmap stack get
   setStack as
   return a
-
-popDump :: GMStateMonad GMDumpItem
-popDump = do
-  (d : ds) <- getDump
-  setDump ds
-  return d
 
 peekStack :: Int -> GMStateMonad Addr
 peekStack n = do
@@ -132,7 +130,7 @@ dispatch (CaseJump alternatives) = casejump alternatives
 
 casejump :: Assoc Int GMCode -> GMStateMonad ()
 casejump alterns = do
-  (NConstr tag addrs) <- peekStack 0 >>= changeHeap . hLookup'
+  (NConstr tag _) <- peekStack 0 >>= changeHeap . hLookup'
   let branch = aLookup alterns tag (error "casejump failed")
   prependCode branch
 
@@ -142,8 +140,8 @@ pack tag arity = do
   changeHeap (hAlloc (NConstr tag addrs)) >>= pushOnStack
 
 split :: Int -> GMStateMonad ()
-split n = do
-  (NConstr tag addrs) <- popStack >>= changeHeap . hLookup'
+split _ = do
+  (NConstr _ addrs) <- popStack >>= changeHeap . hLookup'
   forM_ (reverse addrs) pushOnStack
 
 evalPrint :: GMStateMonad ()
@@ -151,7 +149,7 @@ evalPrint = do
   node <- popStack >>= changeHeap . hLookup'
   case node of
     (NNum x)            -> appendOutput $ show x
-    (NConstr tag addrs) -> prependCode (concatMap (const [Eval, Print]) addrs)
+    (NConstr _ addrs) -> prependCode (concatMap (const [Eval, Print]) addrs)
                            >> forM_ (reverse addrs) pushOnStack
     _                   -> error "evalPrint failed"
 
@@ -228,7 +226,7 @@ unwind = do
   case node of
     (NNum _)      -> maybePopDump a
     (NConstr _ _) -> maybePopDump a
-    (NAp a1 a2) -> pushOnStack a1 >> setCode [Unwind]
+    (NAp a1 _) -> pushOnStack a1 >> setCode [Unwind]
     (NInd addr) -> popStack >> pushOnStack addr >> setCode [Unwind]
     (NGlobal arity c) -> do
       st <- getStack
@@ -268,9 +266,6 @@ primitive2 box unbox op =
 
 --------------------------------------------------------------------------------
 -- Arithmetic instructions
-
-arithmetic1 :: (Int -> Int) -> GMStateMonad ()
-arithmetic1 = primitive1 boxInteger unboxInteger
 
 arithmetic2 :: (Int -> Int -> Int) -> GMStateMonad ()
 arithmetic2 = primitive2 boxInteger unboxInteger
