@@ -26,3 +26,6 @@ run programText = n
     states = evalState eval initialState
     final = last states
     (NNum n) = hLookup (heap final) (head $ stack final)
+
+compileString :: String -> GMCode
+compileString = code . compile . parseString parseProgram
