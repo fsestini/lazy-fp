@@ -15,7 +15,7 @@ data BinOp = Plus | Minus | Mult | Div deriving (Eq, Show)
 data PrimOp = PrimComp | PrimSum | PrimSub | PrimMul | PrimDiv
             deriving (Eq,Show)
 
-data Expr a = EVar Name
+data Expr a = EVar a
             | ENum Int
             | ECtor CtorName
             | EAp (Expr a) (Expr a)
@@ -27,7 +27,7 @@ data Expr a = EVar Name
 
 type LangExpr = Expr Name
 
-type ScDefn a = (Name, [a], Expr a)
+type ScDefn a = (a, [a], Expr a)
 type LangScDefn = ScDefn Name
 
 type Program a = ([AdtDecl],[ScDefn a])
