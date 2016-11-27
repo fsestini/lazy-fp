@@ -137,7 +137,7 @@ parseCase =  ECase
          <*> parseAlternatives
 
 parseLambda :: Parser LangExpr
-parseLambda =  ELam
+parseLambda =  flip (foldr ELam)
            <$  reservedOp "^"
            <*> many1 identifier
            <*  dot

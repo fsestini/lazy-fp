@@ -21,7 +21,7 @@ data Expr a = EVar a
             | EAp (Expr a) (Expr a)
             | ELet LetMode [(a, Expr a)] (Expr a)
             | ECase (Expr a) [Alter a]
-            | ELam [a] (Expr a)
+            | ELam a (Expr a)
             | EPrimitive PrimOp -- primitive operations
             deriving (Eq, Show)
 

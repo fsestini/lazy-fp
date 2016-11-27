@@ -150,10 +150,7 @@ annotate (EVar x) = do
 annotate (ENum n) = return $ AENum n
 annotate (ECtor name) = return $ AECtor name
 annotate (EAp e1 e2) = AEAp <$> annotate e1 <*> annotate e2
-annotate (ELam [] _) = error "lambda abstraction without bound variables"
-annotate (ELam [x] e) = AELam x <$> local (shiftPushSymbols [x]) (annotate e)
-annotate (ELam (x:xs) e) = AELam x <$> local (shiftPushSymbols [x])
-                                             (annotate (ELam xs e))
+annotate (ELam x e) = AELam x <$> local (shiftPushSymbols [x]) (annotate e)
 annotate (ELet NonRecursive bindings e) = AELet NonRecursive
   <$> forM bindings (secondM annotate)
   <*> local (shiftPushSymbols (map fst bindings)) (annotate e)
@@ -178,7 +175,7 @@ deannotate (AELet m b e) = ELet m (map (second deannotate) b)
                                   (deannotate e)
 deannotate (AECase e alters) =
   ECase (deannotate e) (map (third deannotate) alters)
-deannotate (AELam x e) = ELam [x] (deannotate e)
+deannotate (AELam x e) = ELam x (deannotate e)
 deannotate (AEPrimitive p) = EPrimitive p
 
 annotateSc :: Eq a => [a] -> ScDefn a -> AScDefn a
