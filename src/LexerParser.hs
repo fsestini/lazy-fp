@@ -19,6 +19,7 @@ languageDef =
                                       , "letrec"
                                       , "in"
                                       , "Pack"
+                                      , "primComp"
                                       ]
             , Token.reservedOpNames = ["+", "-", "*", "/", "="
                                       , "\\", "->", ".", ","
@@ -79,6 +80,10 @@ parseExpression =  parseLet
                <|> parseCase
                <|> parseLambda
                <|> parseExpr1
+               -- <|> parsePrimComp
+
+-- parsePrimComp :: Parser CoreExpr
+-- parsePrimComp = string "primComp" >> return EPrimComp
 
 parseCase :: Parser CoreExpr
 parseCase =  ECase
@@ -110,6 +115,7 @@ parseAlternative =  (,,)
 parseAExp :: Parser CoreExpr
 parseAExp =  (EVar <$> identifier)
          <|> (ENum <$> integer)
+         <|> (reserved "primComp" >> return EPrimComp)
          <|> parseCtor
          <|> parens parseExpression
   where

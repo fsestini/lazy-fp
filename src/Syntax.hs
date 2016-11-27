@@ -1,6 +1,6 @@
 module Syntax where
 
-import PrettyPrint.ISeq
+import AssocList
 
 type Name = String
 type CtorTag = Int
@@ -16,6 +16,7 @@ data Expr a = EVar Name
             | ELet LetMode [(a, Expr a)] (Expr a)
             | ECase (Expr a) [Alter a]
             | ELam [a] (Expr a)
+            | EPrimComp -- primitive integer comparison
             deriving (Eq, Show)
 
 type CoreExpr = Expr Name
@@ -32,6 +33,8 @@ rhssOf = map snd
 
 type Alter a = (CtorTag, [a], Expr a)
 type CoreAlt = Alter Name
+
+type CoreBinders = Assoc Name CoreExpr
 
 isAtomicExpr :: Expr a -> Bool
 isAtomicExpr (EVar v) = True
@@ -55,5 +58,6 @@ preludeDefs = [
   ("K1", ["x", "y"], EVar "y"),
   ("S", ["f", "g", "x"], EAp (EAp (EVar "f") (EVar "x")) (EAp (EVar "g") (EVar "x"))),
   ("compose", ["f", "g", "x"], EAp (EVar "f") (EAp (EVar "g") (EVar "x"))),
-  ("twice", ["f"], EAp (EAp (EVar "compose") (EVar "f")) (EVar "f"))
+  ("twice", ["f"], EAp (EAp (EVar "compose") (EVar "f")) (EVar "f")),
+  ("if", ["b", "x", "y"], ECase (EVar "b") [(2,[],EVar "x"),(1,[],EVar "y")])
    ]
