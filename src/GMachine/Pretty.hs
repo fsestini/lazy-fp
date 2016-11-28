@@ -3,9 +3,9 @@ module GMachine.Pretty where
 --- import Text.PrettyPrint.HughesPJClass
 import Text.PrettyPrint
 
-import Syntax hiding (Div)
-import Heap
+import GMachine.Syntax hiding (Div)
 import GMachine.Structures
+import Heap
 
 --------------------------------------------------------------------------------
 -- Instructions

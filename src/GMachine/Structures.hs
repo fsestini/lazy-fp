@@ -1,7 +1,7 @@
 module GMachine.Structures where
 
 import Heap
-import Syntax
+import GMachine.Syntax
 
 type GlobalName = Either Name (CtorTag, CtorArity)
 

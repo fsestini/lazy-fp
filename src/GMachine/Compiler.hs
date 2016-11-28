@@ -10,7 +10,7 @@ import Control.Monad (forM)
 import Control.Monad.Reader
 
 import GMachine.Structures
-import Syntax
+import GMachine.Syntax
 import Heap
 import AssocList
 
@@ -214,7 +214,7 @@ compileBinOp binop e1 e2 =
                              (return [PushGlobal $ Left "-", Mkap, Mkap])
     Mult       -> branchMode (return [Mul])
                              (return [PushGlobal $ Left "*", Mkap, Mkap])
-    Syntax.Div -> branchMode (return [GMachine.Structures.Div])
+    GMachine.Syntax.Div -> branchMode (return [GMachine.Structures.Div])
                              (return [PushGlobal $ Left "/", Mkap, Mkap])
 
 --------------------------------------------------------------------------------

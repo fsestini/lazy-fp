@@ -4,8 +4,8 @@ module GMachine.Evaluator(
 ) where
 
 import GMachine.Structures
+import GMachine.Syntax hiding (Div)
 import Control.Monad.State.Lazy
-import Syntax hiding (Div)
 import Heap
 import Data.Maybe
 import AssocList
