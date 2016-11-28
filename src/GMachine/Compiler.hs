@@ -129,10 +129,10 @@ compilee (ELet NonRecursive defs e) = compileLet defs e
 compilee (ELet Recursive defs e) = compileLetRec defs e
 compilee (EBinOp binop e1 e2) = compileBinOp binop e1 e2
 compilee (EVar x) = strictWrap $ inNonStrictMode $ do
- env <- askEnv
- if x `elem` map fst env
-   then return [Push $ lkup env x]
-   else return [PushGlobal $ Left x]
+  env <- askEnv
+  if x `elem` map fst env
+    then return [Push $ lkup env x]
+    else return [PushGlobal $ Left x]
 compilee e@(EAp e0 e1) = case isFullyAppliedCtor e of
   Just (t,a,exprs) -> compileFullyAppliedCtor t a exprs
   Nothing          -> case isFullyAppliedPrimitiveComparison e of
