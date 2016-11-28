@@ -140,7 +140,6 @@ compilee (ECase e alts) =
 compilee (ECtor t a) = if a == 0
   then compileFullyAppliedCtor t a []
   else return [PushGlobal $ Right (t,a)]
-compilee (ELam e1 e2) = undefined
 compilee EPrimComp = strictWrap $ return [PushGlobal $ Left "primComp"]
 
 strictWrap :: (forall m . CMonad m GMCode) -> CMonad n GMCode

@@ -15,7 +15,6 @@ data Expr a = EVar Name
             | EAp (Expr a) (Expr a)
             | ELet LetMode [(a, Expr a)] (Expr a)
             | ECase (Expr a) [Alter a]
-            | ELam [a] (Expr a)
             | EPrimComp -- primitive integer comparison
             deriving (Eq, Show)
 

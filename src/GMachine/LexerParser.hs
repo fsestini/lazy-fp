@@ -78,7 +78,6 @@ parseExpression :: Parser CoreExpr
 parseExpression =  parseLet
                <|> parseLetRec
                <|> parseCase
-               <|> parseLambda
                <|> parseExpr1
                -- <|> parsePrimComp
 
@@ -91,16 +90,6 @@ parseCase =  ECase
          <*> parseExpression
          <*  reserved "of"
          <*> parseAlternatives
-
-parseLambda :: Parser CoreExpr
-parseLambda =  ELam
-           <$  reservedOp "\\"
-           <*> many1 identifier
-           <*  dot
-           <*> parseExpression
-
--- type Alter a = (CtorTag, [a], Expr a)
--- type CoreAlt = Alter Name
 
 parseAlternatives :: Parser [CoreAlt]
 parseAlternatives = semiSep parseAlternative
