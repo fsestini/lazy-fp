@@ -143,9 +143,8 @@ compilee e@(EAp e0 e1) = case isFullyAppliedCtor e of
     Nothing        -> applicationCompilation e0 e1
 compilee (ECase e alts) =
   branchMode (compileCase e alts) (error "compiling case in non-strict scheme")
-compilee (ECtor t a) = if a == 0
-  then compileFullyAppliedCtor t a []
-  else return [PushGlobal $ Right (t,a)]
+compilee (ECtor t a) | a == 0    = return [Pack t a]
+                     | otherwise = return [PushGlobal $ Right (t,a)]
 compilee EPrimComp = strictWrap $ return [PushGlobal $ Left "primComp"]
 
 strictWrap :: (forall m . CMonad m GMCode) -> CMonad n GMCode
