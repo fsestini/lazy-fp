@@ -123,6 +123,9 @@ compileR e env = body ++ [Update n, Pop n, Unwind]
 -- Given an expression, it produces G-Machine code which, when executed,
 -- will construct an instance of the expression, and leave a pointer to the
 -- instance on top of the stack.
+-- In case it is syntactically evident that applications correspond to
+-- fully applied data constructors/primitive operations, these are compiled
+-- directly for performance.
 compilee :: CoreExpr -> CMonad m GMCode
 compilee (ENum n) = return [PushInt n]
 compilee (ELet NonRecursive defs e) = compileLet defs e
