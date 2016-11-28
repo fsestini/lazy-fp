@@ -120,6 +120,9 @@ compileR e env = body ++ [Update n, Pop n, Unwind]
     body = runReader (compilee e) (StrictEnv env)
     n = length env
 
+-- Given an expression, it produces G-Machine code which, when executed,
+-- will construct an instance of the expression, and leave a pointer to the
+-- instance on top of the stack.
 compilee :: CoreExpr -> CMonad m GMCode
 compilee (ENum n) = return [PushInt n]
 compilee (ELet NonRecursive defs e) = compileLet defs e
