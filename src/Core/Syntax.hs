@@ -1,4 +1,4 @@
-module Lang.Syntax where
+module Core.Syntax where
 
 type Name = String
 type TypeName = Name

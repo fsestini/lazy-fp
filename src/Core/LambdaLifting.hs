@@ -1,12 +1,12 @@
 {-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Lang.LambdaLifting (liftSupercombinators, PickNew) where
+module Core.LambdaLifting (liftSupercombinators, PickNew) where
 
 import Control.Monad.State.Lazy
 import Data.Maybe (listToMaybe)
 import Data.List (sortBy)
-import Lang.Syntax
+import Core.Syntax
 import Control.Monad.Reader
 import Control.Arrow (second)
 
