@@ -2,21 +2,21 @@ module Lang.Syntax where
 
 import Data.List.NonEmpty
 
-type Program a = [Either DataDecl (Expr a)]
+type Program a = [Either DataDecl (LangExpr a)]
 type DataDecl = (Name, [CtorDecl])
 type CtorDecl = (Name, [Name])
 type Name = String
 type CtorName = Name
-type Binder a = (Name, Expr a)
-type Alter a = (a, [a], Expr a)
-type ScDefn a = (a, [Pattern a], Expr a)
+type Binder a = (Name, LangExpr a)
+type Alter a = (a, [a], LangExpr a)
+type ScDefn a = (a, [Pattern a], LangExpr a)
 
-data Expr a = Var a
+data LangExpr a = Var a
             | Ctor CtorName
-            | Lam [a] (Expr a)
-            | Let LetMode (NonEmpty (Binder a)) (Expr a)
-            | Case (Expr a) (NonEmpty (Alter a))
-            | App (Expr a) (Expr a)
+            | Lam [a] (LangExpr a)
+            | Let LetMode (NonEmpty (Binder a)) (LangExpr a)
+            | Case (LangExpr a) (NonEmpty (Alter a))
+            | App (LangExpr a) (LangExpr a)
             | Lit Lit
             | PrimOp PrimOp
             deriving (Eq,Show)
