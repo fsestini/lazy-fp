@@ -6,25 +6,21 @@ import Control.Arrow (second)
 third :: (c -> d) -> (a,b,c) -> (a,b,d)
 third f (x,y,z) = (x,y,f z)
 
-type Alter a = (a, [a], Expr a)
-type ScDefn a = (a, [a], Expr a)
+type CoreAlter a = (a, [a], CoreExpr a)
+type CoreScDefn a = (a, [a], CoreExpr a)
 
-data Expr a = EVar a
+data CoreExpr a = EVar a
             | ENum Int
             | ECtor CtorName
-            | EAp (Expr a) (Expr a)
-            | ELet LetMode [(a, Expr a)] (Expr a)
-            | ECase (Expr a) [Alter a]
-            | ELam a (Expr a)
+            | EAp (CoreExpr a) (CoreExpr a)
+            | ELet LetMode [(a, CoreExpr a)] (CoreExpr a)
+            | ECase (CoreExpr a) [CoreAlter a]
+            | ELam a (CoreExpr a)
             | EPrimitive PrimOp -- primitive operations
             deriving (Eq, Show)
 
-type CoreAlter = Alter Name
-type CoreExpr = Expr Name
-type CoreScDefn = ScDefn Name
-
 -- [u/v]e, where u is fresh
-substituteVar :: Eq a => a -> a -> Expr a -> Expr a
+substituteVar :: Eq a => a -> a -> CoreExpr a -> CoreExpr a
 substituteVar u v (EVar x) | v == x = EVar u
                            | otherwise = EVar x
 substituteVar u v (EAp e1 e2) =
