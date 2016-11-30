@@ -54,7 +54,7 @@ Sc   : VAR list(Pat) '=' Expr                { ($1, $2, $4) }
 Expr : let Bind list(SemiBind) in Expr       { Let NonRecursive ($2 :| $3) $5 }
      | letrec Bind list(SemiBind) in Expr    { Let Recursive ($2 :| $3) $5 }
      | '\\' list(VAR) '->' Expr              { Lam $2 $4 }
-     | case VAR in Alter list(SemiAlter)     { Case $2 ($4 :| $5) }
+     | case Expr in Alter list(SemiAlter)    { Case $2 ($4 :| $5) }
      | Form                                  { $1 }
 
 Pat : VAR                                    { PVar $1 }

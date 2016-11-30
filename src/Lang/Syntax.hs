@@ -15,7 +15,7 @@ data Expr a = Var a
             | Ctor CtorName
             | Lam [a] (Expr a)
             | Let LetMode (NonEmpty (Binder a)) (Expr a)
-            | Case a (NonEmpty (Alter a))
+            | Case (Expr a) (NonEmpty (Alter a))
             | App (Expr a) (Expr a)
             | Lit Lit
             | PrimOp PrimOp
