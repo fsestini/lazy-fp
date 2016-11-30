@@ -32,3 +32,6 @@ substituteVar u v (ECase e alts) =
 substituteVar u v e@(ELam x body) | v == x = e
                                   | otherwise = ELam x (substituteVar u v body)
 substituteVar u v e = e
+
+freeVars :: CoreExpr a -> [a]
+freeVars = error "not implemented: Core.Syntax.freeVars"
