@@ -79,6 +79,7 @@ Fact : Fact Atom                             { App $1 $2 }
 Atom : '(' Expr ')'                          { $2 }
      | NUM                                   { Lit (LInt $1) }
      | VAR                                   { Var $1 }
+     | CTOR                                  { Ctor $1 }
      | prim                                  { PrimOp $1 }
 
 list(p) : p list(p)                          { $1 : $2 }
