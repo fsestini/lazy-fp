@@ -1,19 +1,13 @@
 module Core.Syntax where
 
-type Name = String
-type TypeName = Name
-type CtorName = Name
-type AdtCtor = (CtorName, [TypeName])
-type AdtDecl = (TypeName, [AdtCtor])
+import Lang.Syntax(PrimOp, LetMode, Name, CtorName)
+import Control.Arrow (second)
 
-type Alter a = (CtorName, [a], Expr a)
-type LangAlter = Alter Name
+third :: (c -> d) -> (a,b,c) -> (a,b,d)
+third f (x,y,z) = (x,y,f z)
 
-data LetMode = Recursive | NonRecursive deriving (Eq, Show)
-data BinOp = Plus | Minus | Mult | Div deriving (Eq, Show)
-
-data PrimOp = PrimComp | PrimSum | PrimSub | PrimMul | PrimDiv
-            deriving (Eq,Show)
+type Alter a = (a, [a], Expr a)
+type ScDefn a = (a, [a], Expr a)
 
 data Expr a = EVar a
             | ENum Int
@@ -25,10 +19,6 @@ data Expr a = EVar a
             | EPrimitive PrimOp -- primitive operations
             deriving (Eq, Show)
 
-type LangExpr = Expr Name
-
-type ScDefn a = (a, [a], Expr a)
-type LangScDefn = ScDefn Name
-
-type Program a = ([AdtDecl],[ScDefn a])
-type LangProgram = Program Name
+type CoreAlter = Alter Name
+type CoreExpr = Expr Name
+type CoreScDefn = ScDefn Name
