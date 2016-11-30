@@ -6,11 +6,13 @@ type Program a = [Either DataDecl (Expr a)]
 type DataDecl = (Name, [CtorDecl])
 type CtorDecl = (Name, [Name])
 type Name = String
+type CtorName = Name
 type Binder a = (Name, Expr a)
 type Alter a = (a, [a], Expr a)
 type ScDefn a = (a, [Pattern a], Expr a)
 
 data Expr a = Var a
+            | Ctor CtorName
             | Lam [a] (Expr a)
             | Let LetMode (NonEmpty (Binder a)) (Expr a)
             | Case a (NonEmpty (Alter a))
@@ -21,7 +23,7 @@ data Expr a = Var a
 
 data Pattern a = PVar a
                | PInt Int
-               | PCtor a [Pattern a]
+               | PCtor CtorName [Pattern a]
                deriving (Eq,Show)
 
 data LetMode = Recursive | NonRecursive deriving (Eq, Show)
