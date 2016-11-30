@@ -22,3 +22,17 @@ data Expr a = EVar a
 type CoreAlter = Alter Name
 type CoreExpr = Expr Name
 type CoreScDefn = ScDefn Name
+
+-- [u/v]e, where u is fresh
+substituteVar :: Eq a => a -> a -> Expr a -> Expr a
+substituteVar u v (EVar x) | v == x = EVar u
+                           | otherwise = EVar x
+substituteVar u v (EAp e1 e2) =
+  EAp (substituteVar u v e1) (substituteVar u v e2)
+substituteVar u v (ELet mode binds e) =
+  ELet mode (map (second (substituteVar u v)) binds) (substituteVar u v e)
+substituteVar u v (ECase e alts) =
+  ECase (substituteVar u v e) (map (third (substituteVar u v)) alts)
+substituteVar u v e@(ELam x body) | v == x = e
+                                  | otherwise = ELam x (substituteVar u v body)
+substituteVar u v e = e
