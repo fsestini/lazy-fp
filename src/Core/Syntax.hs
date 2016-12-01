@@ -6,7 +6,7 @@ import Control.Arrow (second)
 third :: (c -> d) -> (a,b,c) -> (a,b,d)
 third f (x,y,z) = (x,y,f z)
 
-type CoreAlter a = (a, [a], CoreExpr a)
+type CoreAlter a = (CtorName, [a], CoreExpr a)
 type CoreScDefn a = (a, [a], CoreExpr a)
 
 data CoreExpr a = EVar a
