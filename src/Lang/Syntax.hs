@@ -1,6 +1,6 @@
 module Lang.Syntax where
 
-import Data.List.NonEmpty
+import Data.List.NonEmpty(NonEmpty(..))
 
 type Program a = [Either DataDecl (LangExpr a)]
 type DataDecl = (Name, [CtorDecl])
