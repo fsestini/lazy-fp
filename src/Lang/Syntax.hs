@@ -11,6 +11,10 @@ type Binder a = (Name, LangExpr a)
 type Alter a = (CtorName, [a], LangExpr a)
 type ScDefn a = (a, [Pattern a], LangExpr a)
 
+termConstructors :: DataDecl -> [(CtorName, Int)]
+termConstructors (typeName,decls) =
+  map (\decl -> (fst decl, length . snd $ decl)) decls
+
 data LangExpr a = Var a
             | Ctor CtorName
             | Lam [a] (LangExpr a)
