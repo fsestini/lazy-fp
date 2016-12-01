@@ -3,8 +3,8 @@ module Lang.Syntax where
 import Data.List.NonEmpty(NonEmpty(..))
 
 type Program a = [Either DataDecl (LangExpr a)]
-type DataDecl = (Name, [CtorDecl])
-type CtorDecl = (Name, [Name])
+type DataDecl = (CtorName, [CtorDecl])
+type CtorDecl = (CtorName, [CtorName])
 type Name = String
 type CtorName = Name
 type Binder a = (Name, LangExpr a)
