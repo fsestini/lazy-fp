@@ -2,10 +2,12 @@
 
 module Lang.PatternCompiler where
 
+import Data.Set(toList)
+import Control.Arrow(second)
 import Control.Monad.Reader
 import Data.Maybe(isJust)
 import Control.Monad.State
-import Data.List.NonEmpty(NonEmpty(..))
+import Data.List.NonEmpty(toList, NonEmpty(..))
 import Control.Monad(forM)
 import Lang.Syntax
 import Core.Syntax
@@ -13,9 +15,9 @@ import Data.List(nubBy)
 import PickFresh
 
 type Equation a = ([Pattern a], CoreExpr a)
-type PMState v a = ReaderT [DataDecl] (State [v]) a
+type PMMonad v a = ReaderT [DataDecl] (State [v]) a
 
-pickNFresh :: PickFresh v => Int -> PMState v [v]
+pickNFresh :: PickFresh v => Int -> PMMonad v [v]
 pickNFresh n = do
   soFar <- get
   let newVars = take n $ freshStream soFar
@@ -25,11 +27,33 @@ pickNFresh n = do
 --------------------------------------------------------------------------------
 -- Main function
 
+-- Translate a single supercombinator, given by a list of pattern-matched
+-- definitions.
+translateSc :: forall a . (Ord a, PickFresh a)
+            => [DataDecl]
+            -> [([Pattern a], LangExpr a)]
+            -> CoreExpr a
+translateSc decls things = evalState (runReaderT monad decls) totalFreeVars
+  where
+    monad = do
+      lambdaVars <- pickNFresh noOfPatterns
+      matched <- match lambdaVars translated EError
+      return $ foldr ELam matched lambdaVars
+    noOfPatterns = length . fst . head $ things
+    translated :: [Equation a]
+    translated = map (second translateToCore) things
+    allPatterns :: [Pattern a]
+    allPatterns = concatMap fst things
+    allExprs :: [CoreExpr a]
+    allExprs = map snd translated
+    totalFreeVars = concatMap patternFreeVars allPatterns
+                 ++ concatMap (Data.Set.toList . allVars) allExprs
+
 match :: (Eq a, PickFresh a)
       => [a]
       -> [Equation a]
       -> CoreExpr a
-      -> PMState a (CoreExpr a)
+      -> PMMonad a (CoreExpr a)
 match [] eqs def | allEmptyPatterns eqs = emptyRule eqs def
                  | otherwise = error "failed"
 match (u:us) eqs defaultExpr
@@ -42,8 +66,12 @@ match (u:us) eqs defaultExpr
 --------------------------------------------------------------------------------
 -- Variables rule
 
-stripFirstVarInEquations :: [Equation a] -> ([a], [Equation a])
-stripFirstVarInEquations = undefined
+stripFirstVarInEquations :: forall a . [Equation a] -> ([a], [Equation a])
+stripFirstVarInEquations eqs = (map fst mapped, map snd mapped)
+  where
+    stripFirstVarInEquation :: Equation a -> (a, Equation a)
+    stripFirstVarInEquation (PVar x : ps, e) = (x, (ps, e))
+    mapped = map stripFirstVarInEquation eqs
 
 substituteInEquation :: Eq a => a -> a -> Equation a -> Equation a
 substituteInEquation u v (ps, e) = (ps, substituteVar u v e)
@@ -59,7 +87,7 @@ varRule :: (Eq a, PickFresh a)
         => NonEmpty a
         -> [Equation a]
         -> CoreExpr a
-        -> PMState a (CoreExpr a)
+        -> PMMonad a (CoreExpr a)
 varRule (u :| us) eqs = match us newEqs
   where
     (vars, eqs') = stripFirstVarInEquations eqs
@@ -74,7 +102,7 @@ type CtorArity = Int
 type CtorEquation a = ((CtorName, [Pattern a]), [Pattern a], CoreExpr a)
 type AnonCtorEquation a = ([Pattern a], [Pattern a], CoreExpr a)
 
-allCtorsOfDataType :: [CtorName] -> PMState v [(CtorName, CtorArity)]
+allCtorsOfDataType :: [CtorName] -> PMMonad v [(CtorName, CtorArity)]
 allCtorsOfDataType names = do
   decls <- ask
   return $ group decls
@@ -82,7 +110,14 @@ allCtorsOfDataType names = do
     group decls = head $ flip filter (map termConstructors decls) $ \gr ->
       all (`elem` map fst gr) names
 
-getMissingCtors :: [CtorName] -> PMState v [(CtorName, CtorArity)]
+ctorArity :: CtorName -> PMMonad v Int
+ctorArity name = do
+  decls <- ask
+  let x = concatMap (Data.List.NonEmpty.toList . snd) decls
+      y = head $ filter ((== name) . fst) x
+  return $ (length . snd $ y) - 1
+
+getMissingCtors :: [CtorName] -> PMMonad v [(CtorName, CtorArity)]
 getMissingCtors names = do
   allOfThem <- allCtorsOfDataType names
   return $ filter ((`notElem` names) . fst) allOfThem
@@ -92,9 +127,6 @@ toAnon ((name, ps), ps', e) = (ps, ps', e)
 
 ctorName :: CtorEquation a -> CtorName
 ctorName ((name,_),_,_) = name
-
-ctorArity :: CtorName -> Int
-ctorArity = undefined
 
 startsWithCtor :: Equation a -> Maybe (CtorEquation a)
 startsWithCtor ([], _) = Nothing
@@ -116,19 +148,12 @@ ctorRule :: forall a . (Eq a, PickFresh a) => NonEmpty a
          -> [Equation a]
          -> [CtorEquation a]
          -> CoreExpr a
-         -> PMState a (CoreExpr a)
+         -> PMMonad a (CoreExpr a)
 ctorRule (u :| us) eqs ctorEqs defaultExpr =
-  ECase (EVar u) <$> allAlters
+  ECase (EVar u) <$> fmap (\(x:xs) -> x :| xs) allAlters   -- TODO: fix this
   where
     groups = groupByCtor ctorEqs
-    groupToAlter :: (CtorName, [AnonCtorEquation a]) -> PMState a (CoreAlter a)
-    groupToAlter (name, eqs) = do
-      newVars <- pickNFresh (ctorArity name)
-      let newGroupOfVars = newVars ++ us
-          anonToEquation (ps,ps',e) = (ps ++ ps', e)
-          qs = map anonToEquation eqs
-      (,,) name newVars <$> match newGroupOfVars qs defaultExpr
-    definedAlters = mapM groupToAlter groups
+    definedAlters = mapM (groupToAlter us defaultExpr) groups
     presentCtors = map ctorName ctorEqs
     missingAlters = do
       missingCtors <- getMissingCtors presentCtors
@@ -136,6 +161,19 @@ ctorRule (u :| us) eqs ctorEqs defaultExpr =
         newVars <- pickNFresh arity
         (,,) name newVars <$> match [] [] defaultExpr
     allAlters = (++) <$> definedAlters <*> missingAlters
+
+groupToAlter :: (Eq a, PickFresh a)
+             => [a]
+             -> CoreExpr a
+             -> (CtorName, [AnonCtorEquation a])
+             -> PMMonad a (CoreAlter a)
+groupToAlter us defaultExpr (name, eqs) = do
+  arity <- ctorArity name
+  newVars <- pickNFresh arity
+  let newGroupOfVars = newVars ++ us
+      anonToEquation (ps,ps',e) = (ps ++ ps', e)
+      qs = map anonToEquation eqs
+  (,,) name newVars <$> match newGroupOfVars qs defaultExpr
 
 --------------------------------------------------------------------------------
 -- Empty rule
@@ -147,7 +185,7 @@ hasEmptyPatterns _ = False
 allEmptyPatterns :: [Equation a] -> Bool
 allEmptyPatterns = all hasEmptyPatterns
 
-emptyRule :: forall a . [Equation a] -> CoreExpr a -> PMState a (CoreExpr a)
+emptyRule :: forall a . [Equation a] -> CoreExpr a -> PMMonad a (CoreExpr a)
 emptyRule eqs defaultExpr = return $ head $ map snd eqs ++ [defaultExpr]
 
 --------------------------------------------------------------------------------
@@ -157,10 +195,10 @@ mixtureRule :: forall a . (Eq a, PickFresh a)
             => [a]
             -> [Equation a]
             -> CoreExpr a
-            -> PMState a (CoreExpr a)
+            -> PMMonad a (CoreExpr a)
 mixtureRule us eqs defaultExpr = foldr folder (return defaultExpr) partitions
   where
-    folder :: [Equation a] -> PMState a (CoreExpr a) -> PMState a (CoreExpr a)
+    folder :: [Equation a] -> PMMonad a (CoreExpr a) -> PMMonad a (CoreExpr a)
     folder eq st = st >>= match us eq
     partitions = partitionEqs eqs
     partitionEqs :: [Equation a] -> [[Equation a]]

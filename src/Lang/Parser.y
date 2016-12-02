@@ -23,6 +23,7 @@ import Control.Monad.Except
     CTOR     { TokenCtor $$ }
     semi     { TokenSemi }
     colon    { TokenColon }
+    percent  { TokenPercent }
     case     { TokenCase }
     prim     { TokenPrimOp $$ }
     '\\'     { TokenLambda }
@@ -41,7 +42,7 @@ import Control.Monad.Except
 %left '*'
 %%
 
-Prog : list(ProgElement)  { $1 }
+Prog : sepBy(ProgElement, percent)  { toList $1 }
 
 ProgElement : DataDecl { Left $1 }
             | Sc       { Right $1 }
@@ -94,7 +95,9 @@ sepBy(p,q)  : p                              { $1 :| [] }
 {
 
 parseError :: [Token] -> a
-parseError _ = error "Parse error"
+parseError _ = error "parse error"
+-- parseError [] = error "unexpected end of input"
+-- parseError (l:ls) = show l
 
 -- parseSupercombinators :: [String] -> [ScDefn Name]
 -- parseSupercombinators = map $ parseSc . scanTokens

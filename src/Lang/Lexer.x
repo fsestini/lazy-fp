@@ -42,6 +42,7 @@ tokens :-
   \\                            { \s -> TokenLambda }
   \;                            { \s -> TokenSemi }
   \:                            { \s -> TokenColon }
+  \%                            { \s -> TokenPercent }
   [\+]                          { \s -> TokenAdd }
   [\-]                          { \s -> TokenSub }
   [\*]                          { \s -> TokenMul }
@@ -59,6 +60,7 @@ data Token
   | TokenIn
   | TokenSemi
   | TokenLambda
+  | TokenPercent
   | TokenNum Int
   | TokenSym String
   | TokenPrimOp PrimOp
