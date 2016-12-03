@@ -2,6 +2,7 @@
 
 module Lang.PatternCompiler where
 
+import Utils
 import Data.Set(toList)
 import Control.Arrow(second)
 import Control.Monad.Reader
@@ -61,7 +62,63 @@ match (u:us) eqs defaultExpr
   = varRule (u :| us) eqs defaultExpr
   | otherwise = case allStartWithCtor eqs of
       Just ctorEqs -> ctorRule (u :| us) eqs ctorEqs defaultExpr
-      Nothing -> mixtureRule (u : us) eqs defaultExpr
+      Nothing -> case allStartWithNum eqs of
+        Just numEqs -> numRule (u :| us) numEqs defaultExpr
+        Nothing -> mixtureRule (u : us) eqs defaultExpr
+
+--------------------------------------------------------------------------------
+-- Numeric literals rule
+
+{-
+match (u:us)
+  [ ( k_1 : ps_1, E_1 ),
+    ( k_2 : ps_2, E_2 ),
+    ...
+    ( k_n : ps_n, E_n )]
+  e
+
+  =
+
+  case primEq u k_1 of
+    True  -> match us [ ( ps_1, E_1 ) ] e
+    False -> case primEq u k_2 of
+      True -> match us [ ( ps_2, E_2 ) ] e
+      False -> ...
+      ...
+        False -> e
+
+-}
+
+numRule :: forall a . (Eq a, PickFresh a)
+        => NonEmpty a
+        -> [(Int, Equation a)]
+        -> CoreExpr a
+        -> PMMonad a (CoreExpr a)
+numRule (u :| us) eqs defExpr =
+  foldr folder (return defExpr) eqs
+  where
+    folder :: (Int, Equation a)
+           -> PMMonad a (CoreExpr a)
+           -> PMMonad a (CoreExpr a)
+    folder (n,eq) m = do
+      trueExpr <- match us [eq] defExpr
+      falseExpr <- m
+      let trueAlt = ("True", [], trueExpr)
+          falseAlt = ("False", [], falseExpr)
+          scrutinee = EPrimitive Eql `EAp` EVar u `EAp` ENum n
+      return $ ECase scrutinee (trueAlt :| [falseAlt])
+
+startsWithNum :: Equation a -> Bool
+startsWithNum (PInt _:_,_) = True
+startsWithNum _ = False
+
+allStartWithNum :: [Equation a] -> Maybe [(Int, Equation a)]
+allStartWithNum eqs = if all startsWithNum eqs
+  then Just $ stripLeadingNumbers eqs
+  else Nothing
+  where
+    stripLeadingNumber (PInt n : ps, e) = (n, (ps, e))
+    stripLeadingNumbers = map stripLeadingNumber
 
 --------------------------------------------------------------------------------
 -- Variables rule
@@ -202,25 +259,33 @@ mixtureRule us eqs defaultExpr = foldr folder (return defaultExpr) partitions
     folder eq st = st >>= match us eq
     partitions = partitionEqs eqs
     partitionEqs :: [Equation a] -> [[Equation a]]
-    partitionEqs [] = error "empty list"
-    partitionEqs (eq:eqs) = evalState stateObj (eq:eqs)
-      where stateObj = if startsWithVar eq
-                         then eatVarPatterns
-                         else eatCtorPatterns
-    eatVarPatterns :: State [Equation a] [[Equation a]]
-    eatVarPatterns = do
-      eqs <- get
-      let (part, rest) = span startsWithVar eqs
-      if null rest
-        then return [part]
-        else put rest >> (:) part <$> eatCtorPatterns
-    eatCtorPatterns :: State [Equation a] [[Equation a]]
-    eatCtorPatterns = do
-      eqs <- get
-      let (part, rest) = span (isJust . startsWithCtor) eqs
-      if null rest
-        then return [part]
-        else put rest >> (:) part <$> eatVarPatterns
+    partitionEqs = chunkBy eqEquality
+    -- partitionEqs [] = error "empty list"
+    -- partitionEqs (eq:eqs) = evalState stateObj (eq:eqs)
+    --   where stateObj = if startsWithVar eq
+    --                      then eatVarPatterns
+    --                      else eatCtorPatterns
+    -- eatVarPatterns :: State [Equation a] [[Equation a]]
+    -- eatVarPatterns = do
+    --   eqs <- get
+    --   let (part, rest) = span startsWithVar eqs
+    --   if null rest
+    --     then return [part]
+    --     else put rest >> (:) part <$> eatCtorPatterns
+    -- eatCtorPatterns :: State [Equation a] [[Equation a]]
+    -- eatCtorPatterns = do
+    --   eqs <- get
+    --   let (part, rest) = span (isJust . startsWithCtor) eqs
+    --   if null rest
+    --     then return [part]
+    --     else put rest >> (:) part <$> eatVarPatterns
+
+eqEquality :: Equation a -> Equation a -> Bool
+eqEquality ([]  ,_) ([]  ,_) = True
+eqEquality (PVar _:_,_) (PVar _:_,_) = True
+eqEquality (PInt _:_,_) (PInt _:_,_) = True
+eqEquality (PCtor _ _:_,_) (PCtor _ _:_,_) = True
+eqEquality _ _ = False
 
 --------------------------------------------------------------------------------
 
