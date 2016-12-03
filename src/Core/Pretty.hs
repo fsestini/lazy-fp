@@ -27,10 +27,10 @@ pExpr (EAp e1 e2) = hsep [parens (pExpr e1), parens (pExpr e2)]
 pExpr (ELet mode b e) = pLetLetrec mode b e
 pExpr (ECase e a) = pCase e a
 pExpr (ELam x e) = pLambda x e
-pExpr (EPrimitive Add) = text "#add"
-pExpr (EPrimitive Sub) = text "#sub"
-pExpr (EPrimitive Mul) = text "#mul"
-pExpr (EPrimitive Eql) = text "#eql"
+pExpr (EPrimitive Add) = text "add#"
+pExpr (EPrimitive Sub) = text "sub#"
+pExpr (EPrimitive Mul) = text "mul#"
+pExpr (EPrimitive Eql) = text "eql#"
 pExpr EError = text "error"
 
 pBinder :: Pretty a => (a,CoreExpr a) -> Doc
