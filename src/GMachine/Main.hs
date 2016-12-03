@@ -1,10 +1,10 @@
 module GMachine.Main where
 
-import Syntax
+import GMachine.Syntax
 import GMachine.Compiler
 import GMachine.Evaluator
 import GMachine.Structures
-import LexerParser
+import GMachine.LexerParser
 import GMachine.Pretty
 import Heap
 
