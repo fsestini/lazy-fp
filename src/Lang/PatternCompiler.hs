@@ -142,10 +142,17 @@ type AnonCtorEquation a = ([Pattern a], [Pattern a], CoreExpr a)
 allCtorsOfDataType :: [CtorName] -> PMMonad v [(CtorName, CtorArity)]
 allCtorsOfDataType names = do
   decls <- ask
-  return $ group decls
+  let decl = wantedDataDecl decls
+  return $ map ctorDeclToPair (Data.List.NonEmpty.toList . snd $ decl)
   where
-    group decls = head $ flip filter (map termConstructors decls) $ \gr ->
-      all (`elem` map fst gr) names
+    hasDataCtor :: CtorName -> DataDecl -> Bool
+    hasDataCtor dataCtor (_,dataCtors) =
+      dataCtor `elem` map fst (Data.List.NonEmpty.toList dataCtors)
+    hasDataCtors :: [CtorName] -> DataDecl -> Bool
+    hasDataCtors ctors datadecl = all (`hasDataCtor` datadecl) ctors
+    wantedDataDecl decls = head $ filter (hasDataCtors names) decls
+    ctorDeclToPair :: CtorDecl -> (CtorName, CtorArity)
+    ctorDeclToPair (name, names) = (name, length names - 1)
 
 ctorArity :: CtorName -> PMMonad v Int
 ctorArity name = do
