@@ -69,26 +69,6 @@ match (u:us) eqs defaultExpr
 --------------------------------------------------------------------------------
 -- Numeric literals rule
 
-{-
-match (u:us)
-  [ ( k_1 : ps_1, E_1 ),
-    ( k_2 : ps_2, E_2 ),
-    ...
-    ( k_n : ps_n, E_n )]
-  e
-
-  =
-
-  case primEq u k_1 of
-    True  -> match us [ ( ps_1, E_1 ) ] e
-    False -> case primEq u k_2 of
-      True -> match us [ ( ps_2, E_2 ) ] e
-      False -> ...
-      ...
-        False -> e
-
--}
-
 numRule :: forall a . (Eq a, PickFresh a)
         => NonEmpty a
         -> [(Int, Equation a)]
@@ -260,25 +240,6 @@ mixtureRule us eqs defaultExpr = foldr folder (return defaultExpr) partitions
     partitions = partitionEqs eqs
     partitionEqs :: [Equation a] -> [[Equation a]]
     partitionEqs = chunkBy eqEquality
-    -- partitionEqs [] = error "empty list"
-    -- partitionEqs (eq:eqs) = evalState stateObj (eq:eqs)
-    --   where stateObj = if startsWithVar eq
-    --                      then eatVarPatterns
-    --                      else eatCtorPatterns
-    -- eatVarPatterns :: State [Equation a] [[Equation a]]
-    -- eatVarPatterns = do
-    --   eqs <- get
-    --   let (part, rest) = span startsWithVar eqs
-    --   if null rest
-    --     then return [part]
-    --     else put rest >> (:) part <$> eatCtorPatterns
-    -- eatCtorPatterns :: State [Equation a] [[Equation a]]
-    -- eatCtorPatterns = do
-    --   eqs <- get
-    --   let (part, rest) = span (isJust . startsWithCtor) eqs
-    --   if null rest
-    --     then return [part]
-    --     else put rest >> (:) part <$> eatVarPatterns
 
 eqEquality :: Equation a -> Equation a -> Bool
 eqEquality ([]  ,_) ([]  ,_) = True
@@ -288,12 +249,6 @@ eqEquality (PCtor _ _:_,_) (PCtor _ _:_,_) = True
 eqEquality _ _ = False
 
 --------------------------------------------------------------------------------
-
-{-
-foreach ctor C x1 ... xn
-  if C not in list already
-    then add a clause C x1 ... xn -> match [] [] defaultExpr to the case expr
--}
 
 uncurry3 :: (a -> b -> c -> d) -> (a,b,c) -> d
 uncurry3 f (x,y,z) = f x y z
