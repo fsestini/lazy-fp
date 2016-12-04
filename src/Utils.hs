@@ -2,6 +2,9 @@ module Utils where
 
 import Control.Monad.State
 import Data.List.NonEmpty
+import Data.Maybe(fromMaybe)
+
+fromMaybe' = flip fromMaybe
 
 chunkBy :: (a -> a -> Bool) -> [a] -> [[a]]
 chunkBy _ [] = []
