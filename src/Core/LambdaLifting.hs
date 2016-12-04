@@ -3,6 +3,7 @@
 
 module Core.LambdaLifting (liftSupercombinators, PickNew) where
 
+import Utils
 import Control.Monad.State.Lazy
 import Data.Maybe (listToMaybe)
 import Data.List (sortBy)
@@ -76,27 +77,6 @@ search :: (a -> Bool) -> Stack a -> a
 search _ [] = error "not found"
 search p (x : xs) | p x = x
                   | otherwise = search p xs
-
-fixpoint :: Eq a => a -> (a -> a) -> a
-fixpoint x f = let y = f x in if x == y then x else fixpoint y f
-
-fstOf3 :: (a,b,c) -> a
-fstOf3 (x,_,_) = x
-
-thirdOf3 :: (a,b,c) -> c
-thirdOf3 (_,_,x) = x
-
-third :: (c -> d) -> (a, b, c) -> (a, b, d)
-third f (x,y,z) = (x,y,f z)
-
-second' :: (b -> b -> c) -> (a,b) -> (a,b) -> c
-second' f (_,i) (_,j) = f i j
-
-secondM :: Monad m => (b -> m d) -> (a,b) -> m (a,d)
-secondM f (x,y) = (,) x <$> f y
-
-thirdM :: Monad m => (c -> m d) -> (a,b,c) -> m (a,b,d)
-thirdM f (x,y,z) = (,,) x y <$> f z
 
 --------------------------------------------------------------------------------
 -- Annotation of abstract syntax trees with binding levels

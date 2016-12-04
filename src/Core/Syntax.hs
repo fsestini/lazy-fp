@@ -4,9 +4,7 @@ import Data.Set hiding (foldr, map)
 import Lang.Syntax(LangExpr(..), Lit(..), PrimOp, LetMode(..), Name, CtorName)
 import Control.Arrow (second)
 import Data.List.NonEmpty(NonEmpty(..), map, toList)
-
-third :: (c -> d) -> (a,b,c) -> (a,b,d)
-third f (x,y,z) = (x,y,f z)
+import Utils
 
 type CoreAlter a = (CtorName, [a], CoreExpr a)
 type CoreScDefn a = (a, [a], CoreExpr a)
