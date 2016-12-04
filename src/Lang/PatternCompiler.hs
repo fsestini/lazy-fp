@@ -1,5 +1,18 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{- Pattern matching translation
+
+   Contains code to translate expressions in the main language, which contain
+   pattern matching definitions of top-level functions and let(rec) expressions,
+   into Core (enritched lambda-calculus) expressions which do not.
+   The translation works by translating each pattern matching into a series of
+   semantically equivalent case expressions.
+
+   TODO: explicit type annotations (especially those with scoped type variables)
+   are for debugging and development aid, and most of them should be removed
+   when code is sufficiently stable, to enhance readability.
+-}
+
 module Lang.PatternCompiler where
 
 import Data.Maybe(fromMaybe, isJust)
