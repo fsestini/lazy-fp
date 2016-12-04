@@ -18,27 +18,27 @@ import Core.Translation
 
 ---
 
-str = "data Nat where\n  Zero : Nat ;\n  Succ : Nat -> Nat\n\n%\n\nf Zero = 10\n%\nf (Succ n) = 20\n\n%\n\nmain = 30\n"
-
-dataDecls = fst . partitionEithers . parseProgram . scanTokens $ str
-scDecls = snd . partitionEithers . parseProgram . scanTokens $ str
-chunked = chunkByName scDecls
-
-azdazd name stuff = do
-  let e = translateSc dataDecls stuff
-  putStrLn $ name ++ " = " ++ render (pExpr e)
-
-stuffOfF = snd $ head chunked
-
-translated :: [Equation String]
-translated = map (second translateToCore) stuffOfF
-
-(Just ctorEqs) = allStartWithCtor translated
-groups = groupByCtor ctorEqs
-definedAlters = mapM (groupToAlter ["y"] EError) groups
-
-m = ctorRule ("x" :| []) translated ctorEqs EError
-(ECase e a) = evalState (runReaderT m dataDecls) ["n"]
+-- str = "data Nat where\n  Zero : Nat ;\n  Succ : Nat -> Nat\n\n%\n\nf Zero = 10\n%\nf (Succ n) = 20\n\n%\n\nmain = 30\n"
+--
+-- dataDecls = fst . partitionEithers . parseProgram . scanTokens $ str
+-- scDecls = snd . partitionEithers . parseProgram . scanTokens $ str
+-- chunked = chunkByName scDecls
+--
+-- azdazd name stuff = do
+--   let e = translateSc dataDecls stuff
+--   putStrLn $ name ++ " = " ++ render (pExpr e)
+--
+-- stuffOfF = snd $ head chunked
+--
+-- translated :: [Equation String]
+-- translated = map (second translateToCore) stuffOfF
+--
+-- (Just ctorEqs) = allStartWithCtor translated
+-- groups = groupByCtor ctorEqs
+-- definedAlters = mapM (groupToAlter ["y"] EError) groups
+--
+-- m = ctorRule ("x" :| []) translated ctorEqs EError
+-- (ECase e a) = evalState (runReaderT m dataDecls) ["n"]
 
 ---
 
