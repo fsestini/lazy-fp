@@ -29,28 +29,6 @@ pickNFresh n = do
 --------------------------------------------------------------------------------
 -- Main function
 
--- Translate a single supercombinator, given by a list of pattern-matched
--- definitions.
-translateSc :: forall a . (Ord a, PickFresh a)
-            => [DataDecl]
-            -> [([Pattern a], LangExpr a)]
-            -> CoreExpr a
-translateSc decls things = evalState (runReaderT monad decls) totalFreeVars
-  where
-    monad = do
-      lambdaVars <- pickNFresh noOfPatterns
-      matched <- match lambdaVars translated EError
-      return $ foldr ELam matched lambdaVars
-    noOfPatterns = length . fst . head $ things
-    translated :: [Equation a]
-    translated = map (second translateToCore) things
-    allPatterns :: [Pattern a]
-    allPatterns = concatMap fst things
-    allExprs :: [CoreExpr a]
-    allExprs = map snd translated
-    totalFreeVars = concatMap patternFreeVars allPatterns
-                 ++ concatMap (Data.Set.toList . allVars) allExprs
-
 match :: (Eq a, PickFresh a)
       => [a]
       -> [Equation a]

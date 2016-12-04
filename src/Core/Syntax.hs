@@ -9,18 +9,6 @@ import Utils
 type CoreAlter a = (CtorName, [a], CoreExpr a)
 type CoreScDefn a = (a, [a], CoreExpr a)
 
-translateToCore :: LangExpr a -> CoreExpr a
-translateToCore (Var e) = EVar e
-translateToCore (Ctor e) = ECtor e
-translateToCore (Lam xs e) = foldr ELam (translateToCore e) xs
-translateToCore (Let m b e) =
-  ELet m (Data.List.NonEmpty.map (second translateToCore) b) (translateToCore e)
-translateToCore (Case e a) =
-  ECase (translateToCore e) (Data.List.NonEmpty.map (third translateToCore) a)
-translateToCore (App e1 e2) = EAp (translateToCore e1) (translateToCore e2)
-translateToCore (Lit (LInt n)) = ENum n
-translateToCore (PrimOp p) = EPrimitive p
-
 data CoreExpr a = EVar a
             | ENum Int
             | ECtor CtorName

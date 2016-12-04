@@ -14,6 +14,7 @@ import System.IO
 import Control.Monad
 import Lang.PatternCompiler
 import Core.Pretty
+import Core.Translation
 
 ---
 
