@@ -2,12 +2,13 @@
 
 module Lang.PatternCompiler where
 
+import Data.Maybe(fromMaybe, isJust)
+import Control.Applicative((<|>))
 import Data.Either(partitionEithers)
 import Utils
 import Data.Set(toList)
 import Control.Arrow(second)
 import Control.Monad.Reader
-import Data.Maybe(isJust)
 import Control.Monad.State
 import Data.List.NonEmpty(toList, NonEmpty(..))
 import Control.Monad(forM)
@@ -29,21 +30,19 @@ pickNFresh n = do
 --------------------------------------------------------------------------------
 -- Main function
 
-match :: (Eq a, PickFresh a)
+match :: forall a . (Eq a, PickFresh a)
       => [a]
       -> [Equation a]
       -> CoreExpr a
       -> PMMonad a (CoreExpr a)
 match [] eqs def | allEmptyPatterns eqs = emptyRule eqs def
                  | otherwise = error "failed"
-match (u:us) eqs defaultExpr
+match (u:us) eqs defExpr
   | allStartWithVar eqs
-  = varRule (u :| us) eqs defaultExpr
-  | otherwise = case allStartWithCtor eqs of
-      Just ctorEqs -> ctorRule (u :| us) eqs ctorEqs defaultExpr
-      Nothing -> case allStartWithNum eqs of
-        Just numEqs -> numRule (u :| us) numEqs defaultExpr
-        Nothing -> mixtureRule (u : us) eqs defaultExpr
+  = varRule (u :| us) eqs defExpr
+  | otherwise = ((allStartWithCtor eqs >>= Just . ctorRule (u :| us) defExpr)
+            <|> ( allStartWithNum  eqs >>= Just . numRule  (u :| us) defExpr))
+            `fromMaybe'` mixtureRule (u : us) eqs defExpr
 
 --------------------------------------------------------------------------------
 -- Pattern-matching let(rec)s
@@ -84,11 +83,10 @@ matchBind (p, m) =
 
 numRule :: forall a . (Eq a, PickFresh a)
         => NonEmpty a
-        -> [(Int, Equation a)]
         -> CoreExpr a
+        -> [(Int, Equation a)]
         -> PMMonad a (CoreExpr a)
-numRule (u :| us) eqs defExpr =
-  foldr folder (return defExpr) eqs
+numRule (u :| us) defExpr = foldr folder (return defExpr)
   where
     folder :: (Int, Equation a)
            -> PMMonad a (CoreExpr a)
@@ -201,12 +199,12 @@ groupByCtor eqs = assocList
     assocList = flip map names $ \name ->
                   (name, map toAnon $ filter ((== name) . ctorName) eqs)
 
-ctorRule :: forall a . (Eq a, PickFresh a) => NonEmpty a
-         -> [Equation a]
-         -> [CtorEquation a]
+ctorRule :: forall a . (Eq a, PickFresh a)
+         => NonEmpty a
          -> CoreExpr a
+         -> [CtorEquation a]
          -> PMMonad a (CoreExpr a)
-ctorRule (u :| us) eqs ctorEqs defaultExpr =
+ctorRule (u :| us) defaultExpr ctorEqs =
   ECase (EVar u) <$> fmap (\(x:xs) -> x :| xs) allAlters   -- TODO: fix this
   where
     groups = groupByCtor ctorEqs
@@ -253,13 +251,11 @@ mixtureRule :: forall a . (Eq a, PickFresh a)
             -> [Equation a]
             -> CoreExpr a
             -> PMMonad a (CoreExpr a)
-mixtureRule us eqs defaultExpr = foldr folder (return defaultExpr) partitions
+mixtureRule us eqs defaultExpr =
+  foldr folder (return defaultExpr) (chunkBy eqEquality eqs)
   where
     folder :: [Equation a] -> PMMonad a (CoreExpr a) -> PMMonad a (CoreExpr a)
     folder eq st = st >>= match us eq
-    partitions = partitionEqs eqs
-    partitionEqs :: [Equation a] -> [[Equation a]]
-    partitionEqs = chunkBy eqEquality
 
 eqEquality :: Equation a -> Equation a -> Bool
 eqEquality ([]  ,_) ([]  ,_) = True
