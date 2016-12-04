@@ -40,7 +40,7 @@ pLambda :: Pretty a => a -> CoreExpr a -> Doc
 pLambda x e = hsep [text "\\", pPrint x, text "->", pExpr e]
 
 pLetLetrec :: Pretty a => LetMode -> NonEmpty (a,CoreExpr a) -> CoreExpr a -> Doc
-pLetLetrec m b e = vcat $ keyword : binders ++ [text "in", pExpr e]
+pLetLetrec m b e = vcat $ keyword : binders ++ [text "in", nest 2 $ pExpr e]
   where
     keyword = case m of
       Recursive -> text "letrec"
@@ -53,4 +53,4 @@ pAlter (ctorName,vars,e) =
 
 pCase :: Pretty a => CoreExpr a -> NonEmpty (CoreAlter a) -> Doc
 pCase e alters =
-  vcat $ hsep [text "case", pExpr e] : Prelude.map (nest 2 . pAlter) (toList alters)
+  vcat $ hsep [text "case", pExpr e, text "of"] : Prelude.map (nest 2 . pAlter) (toList alters)
