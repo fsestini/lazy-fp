@@ -1,5 +1,6 @@
 module Lang.Syntax where
 
+import Data.Set(Set, empty, singleton, union, fromList)
 import Data.List(nub)
 import Data.List.NonEmpty(toList, NonEmpty(..))
 
@@ -54,3 +55,17 @@ patternFreeVars :: Pattern a -> [a]
 patternFreeVars (PVar x) = [x]
 patternFreeVars (PInt _) = []
 patternFreeVars (PCtor _ ps) = concatMap patternFreeVars ps
+
+allVars :: Ord a => LangExpr a -> Set a
+allVars (Var x) = singleton x
+allVars (Lam xs e) = fromList xs `union` allVars e
+allVars (Let m b e3) = foldr (union . allVarsOfBinder) empty (toList b)
+allVars (Case e a) = allVars e `union` foldr (union . allVarsOfAlter) empty a
+allVars (App e1 e2) = allVars e1 `union` allVars e2
+allVars _ = empty
+
+allVarsOfBinder :: Ord a => Binder a -> Set a
+allVarsOfBinder (p,e) = fromList (patternFreeVars p) `union` allVars e
+
+allVarsOfAlter :: Ord a => Alter a -> Set a
+allVarsOfAlter (_,xs,e) = fromList xs `union` allVars e
