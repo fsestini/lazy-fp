@@ -2,6 +2,7 @@
 
 module Lang.PatternCompiler where
 
+import Data.Either(partitionEithers)
 import Utils
 import Data.Set(toList)
 import Control.Arrow(second)
@@ -65,6 +66,40 @@ match (u:us) eqs defaultExpr
       Nothing -> case allStartWithNum eqs of
         Just numEqs -> numRule (u :| us) numEqs defaultExpr
         Nothing -> mixtureRule (u : us) eqs defaultExpr
+
+--------------------------------------------------------------------------------
+-- Pattern-matching let(rec)s
+
+matchLetBinders :: (Show a, Eq a, PickFresh a)
+                => [(Pattern a, CoreExpr a)]
+                -> PMMonad a [(a, CoreExpr a)]
+matchLetBinders b = ((varPs ++) . join) <$> forM nonVarPs matchBind
+  where
+    (varPs, nonVarPs) = partitionEithers (map decideVar b)
+    decideVar :: (Pattern a, CoreExpr a)
+              -> Either (a, CoreExpr a) (Pattern a, CoreExpr a)
+    decideVar (PVar x, e) = Left (x, e)
+    decideVar (PInt p, e) = Right (PInt p, e)
+    decideVar (PCtor p1 p2, e) = Right (PCtor p1 p2, e)
+
+matchBind :: forall a . (Show a, Eq a, PickFresh a)
+          => (Pattern a, CoreExpr a)
+          -> PMMonad a [(a, CoreExpr a)]
+matchBind (p, m) =
+  forM patternVars (getBinderForSinglePatternVariable p m)
+  where
+    patternVars :: [a]
+    patternVars = patternFreeVars p
+    getBinderForSinglePatternVariable :: Pattern a
+                                      -> CoreExpr a
+                                      -> a
+                                      -> PMMonad a (a, CoreExpr a)
+    getBinderForSinglePatternVariable pp scrutinee x = do
+      v <- head <$> pickNFresh 1
+      e <- match [v] [([pp], EVar x)] EError
+      case e of
+        (ECase _ a) -> return (x, ECase scrutinee a)
+        _ -> error $ "this was found: " ++ show e
 
 --------------------------------------------------------------------------------
 -- Numeric literals rule
