@@ -8,7 +8,7 @@ type DataDecl = (CtorName, NonEmpty CtorDecl)
 type CtorDecl = (CtorName, NonEmpty CtorName)
 type Name = String
 type CtorName = Name
-type Binder a = (a, LangExpr a)
+type Binder a = (Pattern a, LangExpr a)
 type Alter a = (CtorName, [a], LangExpr a)
 type ScDefn a = (a, [Pattern a], LangExpr a)
 
