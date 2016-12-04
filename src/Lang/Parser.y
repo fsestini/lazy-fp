@@ -63,7 +63,7 @@ Pat : VAR                                    { PVar $1 }
     | CTOR                                   { PCtor $1 [] }
     | '(' CTOR list1(Pat) ')'                { PCtor $2 (toList $3) }
 
-Bind : VAR '=' Expr                          { ($1, $3) }
+Bind : Pat '=' Expr                          { ($1, $3) }
 SemiBind : semi Bind                         { $2 }
 
 Alter : VAR list(VAR) '->' Expr              { ($1, $2, $4) }
