@@ -8,3 +8,6 @@
 -}
 
 module Core.DependencyAnalysis where
+
+import Data.Graph(Graph, Vertex)
+import Data.Graph.SCC(sccList)
