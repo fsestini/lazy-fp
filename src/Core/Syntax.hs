@@ -1,5 +1,6 @@
 module Core.Syntax (
   CoreExpr(..),
+  CoreAlter,
   freeVars,
   allVars,
   LetMode(..),
