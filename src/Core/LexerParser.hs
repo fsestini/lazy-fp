@@ -1,6 +1,6 @@
-module Lang.LexerParser where
+module Core.LexerParser where
 
-import Lang.Syntax
+import Core.Syntax
 
 import Data.Either
 import Data.List

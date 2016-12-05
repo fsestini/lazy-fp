@@ -1,4 +1,4 @@
-module Syntax where
+module GMachine.Syntax where
 
 import AssocList
 

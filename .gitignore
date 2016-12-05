@@ -1,2 +1,4 @@
 *.o
 *.hi
+src/Lang/Lexer.hs
+src/Lang/Parser.hs

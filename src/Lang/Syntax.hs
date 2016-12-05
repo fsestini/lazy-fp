@@ -1,34 +1,71 @@
 module Lang.Syntax where
 
+import Data.Set(Set, empty, singleton, union, fromList)
+import Data.List(nub)
+import Data.List.NonEmpty(toList, NonEmpty(..))
+
+type Program a = [Either DataDecl (LangExpr a)]
+type DataDecl = (CtorName, NonEmpty CtorDecl)
+type CtorDecl = (CtorName, NonEmpty CtorName)
 type Name = String
-type TypeName = Name
 type CtorName = Name
-type AdtCtor = (CtorName, [TypeName])
-type AdtDecl = (TypeName, [AdtCtor])
+type Binder a = (Pattern a, LangExpr a)
+type Alter a = (CtorName, [a], LangExpr a)
+type ScDefn a = (a, [Pattern a], LangExpr a)
 
-type Alter a = (CtorName, [a], Expr a)
-type LangAlter = Alter Name
+--------------------------------------------------------------------------------
+-- Supercombinator definitions
 
-data LetMode = Recursive | NonRecursive deriving (Eq, Show)
-data BinOp = Plus | Minus | Mult | Div deriving (Eq, Show)
+scName :: ScDefn a -> a
+scName (x,_,_) = x
 
-data PrimOp = PrimComp | PrimSum | PrimSub | PrimMul | PrimDiv
+getScNames :: Eq a => [ScDefn a] -> [a]
+getScNames defns = nub $ map scName defns
+
+chunkByName :: Eq a => [ScDefn a] -> [(a, [([Pattern a], LangExpr a)])]
+chunkByName defns = flip map names $ \name ->
+  (name, map (\(x,y,z) -> (y,z)) $ filter ((== name) . scName) defns)
+  where
+    names = getScNames defns
+
+termConstructors :: DataDecl -> [(CtorName, Int)]
+termConstructors (typeName,decls) =
+  map (\decl -> (fst decl, length . snd $ decl)) (toList decls) -- TODO: fix
+
+data LangExpr a = Var a
+            | Ctor CtorName
+            | Lam [a] (LangExpr a)
+            | Let LetMode (NonEmpty (Binder a)) (LangExpr a)
+            | Case (LangExpr a) (NonEmpty (Alter a))
+            | App (LangExpr a) (LangExpr a)
+            | Lit Lit
+            | PrimOp PrimOp
             deriving (Eq,Show)
 
-data Expr a = EVar a
-            | ENum Int
-            | ECtor CtorName
-            | EAp (Expr a) (Expr a)
-            | ELet LetMode [(a, Expr a)] (Expr a)
-            | ECase (Expr a) [Alter a]
-            | ELam a (Expr a)
-            | EPrimitive PrimOp -- primitive operations
-            deriving (Eq, Show)
+data Pattern a = PVar a
+               | PInt Int
+               | PCtor CtorName [Pattern a]
+               deriving (Eq,Show)
 
-type LangExpr = Expr Name
+data LetMode = Recursive | NonRecursive deriving (Eq, Show)
+data Lit = LInt Int deriving (Show, Eq, Ord)
+data PrimOp = Add | Sub | Mul | Eql deriving (Eq, Ord, Show)
 
-type ScDefn a = (a, [a], Expr a)
-type LangScDefn = ScDefn Name
+patternFreeVars :: Pattern a -> [a]
+patternFreeVars (PVar x) = [x]
+patternFreeVars (PInt _) = []
+patternFreeVars (PCtor _ ps) = concatMap patternFreeVars ps
 
-type Program a = ([AdtDecl],[ScDefn a])
-type LangProgram = Program Name
+allVars :: Ord a => LangExpr a -> Set a
+allVars (Var x) = singleton x
+allVars (Lam xs e) = fromList xs `union` allVars e
+allVars (Let m b e3) = foldr (union . allVarsOfBinder) empty (toList b)
+allVars (Case e a) = allVars e `union` foldr (union . allVarsOfAlter) empty a
+allVars (App e1 e2) = allVars e1 `union` allVars e2
+allVars _ = empty
+
+allVarsOfBinder :: Ord a => Binder a -> Set a
+allVarsOfBinder (p,e) = fromList (patternFreeVars p) `union` allVars e
+
+allVarsOfAlter :: Ord a => Alter a -> Set a
+allVarsOfAlter (_,xs,e) = fromList xs `union` allVars e
