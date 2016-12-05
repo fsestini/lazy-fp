@@ -1,6 +1,7 @@
 module Core.Syntax (
   CoreExpr(..),
   CoreAlter,
+  CoreBinder,
   freeVars,
   allVars,
   LetMode(..),
@@ -15,13 +16,14 @@ import qualified Data.List.NonEmpty as NE (NonEmpty(..), map, toList)
 import Utils
 
 type CoreAlter a = (CtorName, [a], CoreExpr a)
+type CoreBinder a = (a, CoreExpr a)
 type CoreScDefn a = (a, [a], CoreExpr a)
 
 data CoreExpr a = EVar a
             | ENum Int
             | ECtor CtorName
             | EAp (CoreExpr a) (CoreExpr a)
-            | ELet LetMode (NE.NonEmpty (a, CoreExpr a)) (CoreExpr a)
+            | ELet LetMode (NE.NonEmpty (CoreBinder a)) (CoreExpr a)
             | ECase (CoreExpr a) (NE.NonEmpty (CoreAlter a))
             | ELam a (CoreExpr a)
             | EPrimitive PrimOp -- primitive operations
