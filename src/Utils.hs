@@ -30,6 +30,9 @@ fstOf3 (x,_,_) = x
 thirdOf3 :: (a,b,c) -> c
 thirdOf3 (_,_,x) = x
 
+dropThird :: (a,b,c) -> (a,b)
+dropThird (x,y,z) = (x,y)
+
 third :: (c -> d) -> (a, b, c) -> (a, b, d)
 third f (x,y,z) = (x,y,f z)
 
