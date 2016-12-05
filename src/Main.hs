@@ -1,5 +1,6 @@
 import GMachine.Main
 
+import Core.DependencyAnalysis
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.List.NonEmpty(NonEmpty(..))
@@ -54,7 +55,7 @@ printCoreRepr filePath = do
   let (dataDecls, scDecls) = partitionEithers . parseProgram . scanTokens $ file
       chunked = chunkByName scDecls
   forM_ chunked $ \(name, stuff) -> do
-    let e = translateSc dataDecls stuff
+    let e = depAnalysisTrans $ translateSc dataDecls stuff
     putStrLn $ name ++ " = " ++ render (pExpr e)
 
 readAll :: IO [String]
