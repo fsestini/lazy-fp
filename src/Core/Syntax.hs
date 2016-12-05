@@ -4,6 +4,7 @@ module Core.Syntax (
   CoreBinder,
   freeVars,
   allVars,
+  substituteVar,
   LetMode(..),
   Name,
   CtorName
