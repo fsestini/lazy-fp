@@ -19,7 +19,7 @@ executable fp-lang
   main-is:             Main.hs
   -- other-modules:
   other-extensions:    TypeSynonymInstances, DataKinds, KindSignatures, GADTs, RankNTypes, FlexibleInstances
-  build-depends:       base >=4.9 && <4.10, mtl >=2.2 && <2.3, parsec >=3.1 && <3.2, pretty >=1.1 && <1.2, split >=0.2 && <0.3, array, containers, GraphSCC
+  build-depends:       base >=4.9 && <4.10, mtl >=2.2 && <2.3, parsec >=3.1 && <3.2, pretty >=1.1 && <1.2, split >=0.2 && <0.3, array, containers, GraphSCC, bifunctors, recursion-schemes
   build-tools:         alex, happy
   hs-source-dirs:      src
   default-language:    Haskell2010
