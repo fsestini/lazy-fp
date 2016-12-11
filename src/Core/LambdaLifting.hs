@@ -1,15 +1,25 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
-{-# OPTIONS_GHC -Wall #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleContexts,
+             LambdaCase, PatternSynonyms, TypeOperators, TypeSynonymInstances,
+             FlexibleInstances, TemplateHaskell #-}
 
-module Core.LambdaLifting (liftSupercombinators, PickNew) where
+module Core.LambdaLifting --(liftSupercombinators, PickNew)
+  where
 
+import Data.Foldable
+import qualified Data.Set as S
+import qualified Data.List.NonEmpty as NE
+import Data.Bifunctor
+import Data.Bifunctor.TH
+import Data.Bifoldable
+import Data.Bitraversable
+import AST
+import RecursionSchemes
 import Utils
 import Control.Monad.State.Lazy
 import Data.Maybe (listToMaybe)
 import Data.List (sortBy)
 import Core.Syntax
 import Control.Monad.Reader
-import Control.Arrow (second)
 
 {- Lambda-lifting algorithm
 
@@ -81,34 +91,52 @@ search p (x : xs) | p x = x
 --------------------------------------------------------------------------------
 -- Annotation of abstract syntax trees with binding levels
 
-data AnnotatedExpr a = AEScName a
-                     | AEBound a Int
-                     | AENum Int
-                     | AECtor CtorName
-                     | AEAp (AnnotatedExpr a) (AnnotatedExpr a)
-                     | AELet LetMode [(a, AnnotatedExpr a)] (AnnotatedExpr a)
-                     | AECase (AnnotatedExpr a) [AnnotatedAlter a]
-                     | AELam a (AnnotatedExpr a)
-                     | AEPrimitive PrimOp
-                     deriving (Eq, Show)
+data ScNameB a b = ScNameB a deriving (Eq, Ord, Show)
+$(deriveBifunctor ''ScNameB)
+$(deriveBifoldable ''ScNameB)
+$(deriveBitraversable ''ScNameB)
+
+data BoundB a b = BoundB a Int deriving (Eq, Ord, Show)
+$(deriveBifunctor ''BoundB)
+$(deriveBifoldable ''BoundB)
+$(deriveBitraversable ''BoundB)
+
+newtype AnnotatedB a b = AB (
+  (BoundB :++: CtorB :++: LitB :++: AppB :++: LetB
+  :++: CaseB :++: LamB :++: PrimB :++: ErrB :++: ScNameB) a b)
+  deriving (Bifunctor, Bifoldable, Eq, Ord, Show)
+
+instance Bitraversable AnnotatedB where
+  bitraverse f g (AB t) = AB <$> bitraverse f g t
+
+type Annotated = FixB AnnotatedB
+
+instance (Eq a) => Eq (Annotated a) where
+  (FixB e1) == (FixB e2) = e1 == e2
 
 data AnnotEnv a = AnnotEnv { stack :: Stack (BindingInfo a)
                            , currentLevel :: Int
                            , scNames :: [a] }
 
-type AnnotatedAlter a = (CtorName, [a], AnnotatedExpr a)
-type AScDefn a = (a, [a], AnnotatedExpr a)
+type AnnotatedAlter a = AnnotatedB a (Annotated a)
+type AScDefn a = (a, [a], Annotated a)
 type BindingInfo a = (a, Int)
 
-freeVars :: Eq a => AnnotatedExpr a -> [(a,Int)]
-freeVars (AEBound x i) = [(x,i)]
-freeVars (AEAp e1 e2) = freeVars e1 ++ freeVars e2
-freeVars (AELam x e) = filter (\(y,_) -> x /= y) $ freeVars e
-freeVars (AELet _ b e) =
-  freeVars e ++ concatMap (freeVars . snd) b
-freeVars (AECase e alters) =
-    freeVars e ++ concatMap (freeVars . thirdOf3) alters
-freeVars _ = []
+aFreeVars :: Ord a => Annotated a -> S.Set (BindingInfo a)
+aFreeVars = cata $ \case
+  (BoundFA x i) -> S.singleton (x,i)
+  (AppFA e1 e2) -> e1 `S.union` e2
+  (LamFA x e) -> e `S.difference` S.singleton (x,0)
+  (LetFA m b e) -> (e `S.difference` lhss) `S.union`
+                   (rhsFreeVars `S.difference` recNonRec m lhss S.empty)
+    where
+      lhss = fromFoldable $ NE.map (\b -> (binderVar b,0)) b
+      rhsFreeVars = foldr S.union S.empty (NE.map binderBody b)
+  (CaseFA e a) -> e `S.union` foldr S.union S.empty (NE.map alterFreeVars a)
+    where
+      alterFreeVars (AlterB _ vars e) =
+        e `S.difference` (S.fromList . map (\x -> (x,0)) $ vars)
+  _ -> S.empty
 
 shiftPushSymbols :: [a] -> AnnotEnv a -> AnnotEnv a
 shiftPushSymbols symbols env = env { currentLevel = level + 1
@@ -121,54 +149,50 @@ pushSymbols symbols env = env { stack = foldr push (stack env) toPush }
   where level = currentLevel env
         toPush = map (\x -> (x, level)) symbols
 
-annotate :: Eq a => Expr a -> Reader (AnnotEnv a) (AnnotatedExpr a)
-annotate (EVar x) = do
-  env <- ask
-  if x `elem` scNames env
-    then return $ AEScName x
-    else let (_,l) = search ((== x) . fst) (stack env) in return $ AEBound x l
-annotate (ENum n) = return $ AENum n
-annotate (ECtor name) = return $ AECtor name
-annotate (EAp e1 e2) = AEAp <$> annotate e1 <*> annotate e2
-annotate (ELam x e) = AELam x <$> local (shiftPushSymbols [x]) (annotate e)
-annotate (ELet NonRecursive bindings e) = AELet NonRecursive
-  <$> forM bindings (secondM annotate)
-  <*> local (shiftPushSymbols (map fst bindings)) (annotate e)
-annotate (ELet Recursive bindings e) = AELet Recursive
-  <$> forM bindings annotBinder
-  <*> local (shiftPushSymbols (map fst bindings)) (annotate e)
-  where annotBinder =
-          secondM $ local (pushSymbols (map fst bindings)) . annotate
-annotate (ECase e alters) = AECase <$> annotate e <*> forM alters annotAlter
-  where annotAlter (name,vars,e') =
-         (,,) name vars <$> local (shiftPushSymbols vars) (annotate e')
-annotate (EPrimitive prim) = return $ AEPrimitive prim
+annotate :: Eq a => CoreExpr a -> Reader (AnnotEnv a) (Annotated a)
+annotate = cata $ \case
+  (EVarF x) -> do
+    env <- ask
+    if x `elem` scNames env
+      then return $ AEScName x
+      else let (_,l) = search ((== x) . fst) (stack env) in return $ AEBound x l
+  (ELamF x e) -> AELam x <$> local (shiftPushSymbols [x]) e
+  (ELetF m b e) -> AELet m <$> b' <*> pusher e
+    where symbols = NE.toList . NE.map binderVar $ b
+          b' = forM b (sequenceA . second pusher)
+          pusher = local (shiftPushSymbols symbols)
+  (ECaseF e a) -> AECase <$> e <*> forM a annotAlter
+    where annotAlter (AlterB name vars e') =
+            AlterB name vars <$> local (shiftPushSymbols vars) e'
+  (ELitFB e)  -> seqfix . AB . inj $ e
+  (ECtorFB e) -> seqfix . AB . inj $ e
+  (EAppFB e)  -> seqfix . AB . inj $ e
+  (EPrimFB e) -> seqfix . AB . inj $ e
 
-deannotate :: AnnotatedExpr a -> Expr a
-deannotate (AEScName name) = EVar name
-deannotate (AEBound x _) = EVar x
-deannotate (AENum n) = ENum n
-deannotate (AECtor name) = ECtor name
-deannotate (AEAp aexpr1 aexpr2) = EAp (deannotate aexpr1)
-                                      (deannotate aexpr2)
-deannotate (AELet m b e) = ELet m (map (second deannotate) b)
-                                  (deannotate e)
-deannotate (AECase e alters) =
-  ECase (deannotate e) (map (third deannotate) alters)
-deannotate (AELam x e) = ELam x (deannotate e)
-deannotate (AEPrimitive p) = EPrimitive p
+deannotate :: Annotated a -> CoreExpr a
+deannotate = cata $ \case
+  (ScNameFA name) -> EVar name
+  (BoundFA x _) -> EVar x
+  (CtorFAB e)   -> FixB . CEB $ inj e
+  (LitFAB e)    -> FixB . CEB $ inj e
+  (AppFAB e)    -> FixB . CEB $ inj e
+  (LetFAB e)    -> FixB . CEB $ inj e
+  (CaseFAB e)   -> FixB . CEB $ inj e
+  (LamFAB e)    -> FixB . CEB $ inj e
+  (PrimFAB e)   -> FixB . CEB $ inj e
+  (ErrFAB e)    -> FixB . CEB $ inj e
 
-annotateSc :: Eq a => [a] -> ScDefn a -> AScDefn a
+annotateSc :: Eq a => [a] -> CoreScDefn a -> AScDefn a
 annotateSc names (name,vars,e) = (name, vars, runReader (annotate e) env)
   where env = AnnotEnv (zip vars [1..]) (length vars) names
 
-deannotateSc :: AScDefn a -> ScDefn a
+deannotateSc :: AScDefn a -> CoreScDefn a
 deannotateSc = third deannotate
 
-annotateSupercombinators :: Eq a => [ScDefn a] -> [AScDefn a]
+annotateSupercombinators :: Eq a => [CoreScDefn a] -> [AScDefn a]
 annotateSupercombinators scs = map (annotateSc (map fstOf3 scs)) scs
 
-deannotateSupercombinators :: [AScDefn a] -> [ScDefn a]
+deannotateSupercombinators :: [AScDefn a] -> [CoreScDefn a]
 deannotateSupercombinators = map deannotateSc
 
 --------------------------------------------------------------------------------
@@ -183,48 +207,44 @@ instance PickNew Name where
     where maxLen = maximum (map length names)
           longest = head $ filter (\name -> length name == maxLen) names
 
-hasAbstractions :: AnnotatedExpr a -> Bool
-hasAbstractions (AELam _ _) = True
-hasAbstractions (AEAp e1 e2) = hasAbstractions e1 || hasAbstractions e2
-hasAbstractions (AELet _ bindings e) =
-  or $ hasAbstractions e : map (hasAbstractions . snd) bindings
-hasAbstractions (AECase e alters) =
-    or $ hasAbstractions e : map (hasAbstractions . thirdOf3) alters
-hasAbstractions _ = False
+hasAbstractions :: Annotated a -> Bool
+hasAbstractions = cata $ \case
+  (LamFA _ _) -> True
+  (BoundFA _ _) -> False
+  (CtorFA _) -> False
+  (LitFA _) -> False
+  (PrimFA _) -> False
+  ErrFA -> False
+  (ScNameFA _) -> False
+  e -> or e
 
 type LiftMonad a b = ReaderT [a] (State [AScDefn a]) b
 
-lambdaLift :: (Eq a, PickNew a) =>
-  AnnotatedExpr a -> LiftMonad a (AnnotatedExpr a)
-lambdaLift (AEAp e1 e2) = AEAp <$> lambdaLift e1 <*> lambdaLift e2
-lambdaLift (AELet x b e) =
-  AELet x <$> forM b (secondM lambdaLift) <*> lambdaLift e
-lambdaLift (AECase e alters) =
-  AECase <$> lambdaLift e <*> forM alters (thirdM lambdaLift)
-lambdaLift e@(AELam x body)
-  | hasAbstractions body = AELam x <$> lambdaLift body
-  | otherwise = do
-      nms <- ask
-      scDefns <- lift get
-      let names = nms ++ map fstOf3 scDefns
-          frees = freeVars e
-          sorted = sortBy (second' compare) frees
-          name = pickNew names
-          scDef = (name, map fst sorted ++ [x], body)
-          newExpr = foldl (\e' (x',i) -> AEAp e' (AEBound x' i))
-                      (AEScName name) sorted
-      lift $ put (scDef : scDefns)
-      return newExpr
-lambdaLift e = return e
+lambdaLift :: (Ord a, PickNew a) => Annotated a -> LiftMonad a (Annotated a)
+lambdaLift = para $ \case
+  (LamFA x (body,r)) | (not . hasAbstractions) body -> do
+    nms <- ask
+    scDefns <- lift get
+    let names = nms ++ map fstOf3 scDefns
+        -- TODO check if i'm picking the right frees
+        frees = aFreeVars (AELam x body)
+        sorted = sortBy (second' compare) . S.toList $ frees
+        name = pickNew names
+        scDef = (name, map fst sorted ++ [x], body)
+        newExpr = foldl (\e' (x',i) -> AEApp e' (AEBound x' i))
+                    (AEScName name) sorted
+    lift $ put (scDef : scDefns)
+    return newExpr
+  e -> seqfix . fmap snd $ e
 
-stepLiftSupercombinatorBody :: (PickNew a, Eq a) =>
-  a -> (AnnotatedExpr a,[AScDefn a]) -> (AnnotatedExpr a, [AScDefn a])
+stepLiftSupercombinatorBody :: (PickNew a, Ord a) =>
+  a -> (Annotated a,[AScDefn a]) -> (Annotated a, [AScDefn a])
 stepLiftSupercombinatorBody name (e,scs) = (newExpr, scs ++ newDefns)
   where names = map fstOf3
         (newExpr,newDefns) =
           runState (runReaderT (lambdaLift e) (names scs ++ [name])) []
 
-liftSupercombinator :: (PickNew a, Eq a) =>
+liftSupercombinator :: (PickNew a, Ord a) =>
   AScDefn a -> [AScDefn a] -> [AScDefn a]
 liftSupercombinator (name,vars,body) others =
   (name, vars, newBody) : newOthers
@@ -232,7 +252,7 @@ liftSupercombinator (name,vars,body) others =
     (newBody, newOthers) =
       fixpoint (body, others) (stepLiftSupercombinatorBody name)
 
-stepLiftSupercombinators :: (PickNew a, Eq a) => [AScDefn a] -> [AScDefn a]
+stepLiftSupercombinators :: (PickNew a, Ord a) => [AScDefn a] -> [AScDefn a]
 stepLiftSupercombinators scs = case pickNonLifted scs of
   Nothing -> scs
   Just sc -> let others = filter (/= sc) scs
@@ -240,14 +260,15 @@ stepLiftSupercombinators scs = case pickNonLifted scs of
   where
     pickNonLifted scs' = listToMaybe $ filter (hasAbstractions . thirdOf3) scs'
 
-liftAnnotatedSupercombinators :: (PickNew a, Eq a) => [AScDefn a] -> [AScDefn a]
+liftAnnotatedSupercombinators :: (PickNew a, Ord a)
+                              => [AScDefn a] -> [AScDefn a]
 liftAnnotatedSupercombinators scs = fixpoint scs stepLiftSupercombinators
 
 --------------------------------------------------------------------------------
 -- Eta-reduction of supercombinator definitions
 
 stepEtaReduce :: Eq a => AScDefn a -> AScDefn a
-stepEtaReduce def@(name, vars@(_:_), AEAp e1 (AEBound x _)) =
+stepEtaReduce def@(name, vars@(_:_), AEApp e1 (AEBound x _)) =
   if lastVar == x
     then (name, init vars, e1)
     else def
@@ -272,26 +293,18 @@ etaReduceSupercombinators main scs = filter (not . strictIdFilter) $
 
 type SubstEnv a b = Reader (a,a) b
 
-substituteScName :: Eq a => AnnotatedExpr a -> SubstEnv a (AnnotatedExpr a)
-substituteScName (AEScName n) = do
-  (lhs,rhs) <- ask
-  if lhs == n then return $ AEScName rhs else return $ AEScName n
-substituteScName (AEAp e1 e2) =
-  AEAp <$> substituteScName e1 <*> substituteScName e2
-substituteScName (AELam x e) = AELam x <$> substituteScName e
-substituteScName (AELet m b e) =
-  AELet m <$> forM b (secondM substituteScName) <*> substituteScName e
-substituteScName (AECase e a) = undefined
-  AECase <$> substituteScName e <*> forM a (thirdM substituteScName)
-substituteScName e = return e
+substituteScName :: Eq a => Annotated a -> SubstEnv a (Annotated a)
+substituteScName = cata $ \case
+  (ScNameFA n) -> do
+    (lhs,rhs) <- ask
+    if lhs == n then return $ AEScName rhs else return $ AEScName n
+  e -> seqfix e
 
 applyScSubstitution :: Eq a => [AScDefn a] -> SubstEnv a [AScDefn a]
-applyScSubstitution = mapM subst
-  where
-    subst (name,v,e) = (do
-      (lhs,rhs) <- ask
-      if name == lhs then return $ (,,) rhs v else return $ (,,) name v)
-      <*> substituteScName e
+applyScSubstitution = mapM $ \(name,v,e) -> (do
+  (lhs,rhs) <- ask
+  if name == lhs then return $ (,,) rhs v else return $ (,,) name v)
+  <*> substituteScName e
 
 --------------------------------------------------------------------------------
 -- Main function
@@ -300,8 +313,50 @@ applyScSubstitution = mapM subst
 -- group in which no supercombinator has lambda abstractions in their bodies.
 -- It takes as parameter the identifier of the main supercombinator, so that it
 -- does not get replaced during eta reduction.
-liftSupercombinators :: (Eq a, PickNew a) => a -> [ScDefn a] -> [ScDefn a]
+liftSupercombinators :: (Ord a, PickNew a)
+                     => a
+                     -> [CoreScDefn a]
+                     -> [CoreScDefn a]
 liftSupercombinators main = deannotateSupercombinators
   . etaReduceSupercombinators main
   . liftAnnotatedSupercombinators
   . annotateSupercombinators
+
+--------------------------------------------------------------------------------
+-- Pattern declarations
+
+pattern BoundFA x i = (AB (Lb (BoundB x i)))
+pattern CtorFA e = (AB (Rb (Lb (CtorB e))))
+pattern LitFA e = (AB (Rb (Rb (Lb (LitB e)))))
+pattern AppFA e1 e2 = (AB (Rb (Rb (Rb (Lb (AppB e1 e2))))))
+pattern LetFA e1 e2 e3 = (AB (Rb (Rb (Rb (Rb (Lb (LetB e1 e2 e3)))))))
+pattern CaseFA e1 e2 = (AB (Rb (Rb (Rb (Rb (Rb (Lb (CaseB e1 e2))))))))
+pattern LamFA e1 e2 = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Lb (LamB e1 e2)))))))))
+pattern PrimFA e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e))))))))))
+pattern ErrFA    = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB))))))))))
+pattern ScNameFA n =
+  (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (ScNameB n)))))))))))
+
+pattern BoundFAB e = (AB (Lb e))
+pattern CtorFAB e = (AB (Rb (Lb e)))
+pattern LitFAB e = (AB (Rb (Rb (Lb e))))
+pattern AppFAB e = (AB (Rb (Rb (Rb (Lb e)))))
+pattern LetFAB e = (AB (Rb (Rb (Rb (Rb (Lb e))))))
+pattern CaseFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Lb e)))))))
+pattern LamFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Lb e))))))))
+pattern PrimFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb e)))))))))
+pattern ErrFAB e  = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb e))))))))))
+pattern ScNameFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb e))))))))))
+
+pattern AEBound x i = (FixB (AB (Lb (BoundB x i))))
+pattern AECtor e = (FixB (AB (Rb (Lb (CtorB e)))))
+pattern AELit e = (FixB (AB (Rb (Rb (Lb (LitB e))))))
+pattern AEApp e1 e2 = (FixB (AB (Rb (Rb (Rb (Lb (AppB e1 e2)))))))
+pattern AELet e1 e2 e3 = (FixB (AB (Rb (Rb (Rb (Rb (Lb (LetB e1 e2 e3))))))))
+pattern AECase e1 e2 = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Lb (CaseB e1 e2)))))))))
+pattern AELam e1 e2 =
+  (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Lb (LamB e1 e2))))))))))
+pattern AEPrim e = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e)))))))))))
+pattern AEErr    = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB)))))))))))
+pattern AEScName n =
+  (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (ScNameB n))))))))))))

@@ -1,7 +1,9 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase, ScopedTypeVariables #-}
 
 module Core.Translation where
 
+import AST
+import RecursionSchemes
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Set as S (toList)
@@ -29,26 +31,24 @@ translateScM :: forall a . (Show a, Ord a, PickFresh a)
 translateScM things = do
   translated <- forM things (secondM translateToCoreM)
   lambdaVars <- pickNFresh noOfPatterns
-  matched <- match lambdaVars translated EError
+  matched <- match lambdaVars translated EErr
   return $ foldr ELam matched lambdaVars
   where
     noOfPatterns = length . fst . head $ things
 
-translateToCoreM :: (Show a, Eq a, PickFresh a) => LangExpr a -> PMMonad a (CoreExpr a)
-translateToCoreM (Let m b e) = do
-  coredBinders <- forM b (secondM translateToCoreM)
-  translatedBinders <- matchLetBinders (NE.toList coredBinders)
-  translatedBody <- translateToCoreM e
-  let b' = head translatedBinders :| tail translatedBinders
-  return $ ELet m b' translatedBody
-translateToCoreM (Var x) = return $ EVar x
-translateToCoreM (Ctor name) = return $ ECtor name
-translateToCoreM (Lam xs e) = do
-  tr <- translateToCoreM e
-  return $ foldr ELam tr xs
-translateToCoreM (Case e a) = ECase <$> translateToCoreM e
-                                    <*> forM a (thirdM translateToCoreM)
-translateToCoreM (App e1 e2) = EAp <$> translateToCoreM e1
-                                   <*> translateToCoreM e2
-translateToCoreM (Lit (LInt n)) = return $ ENum n
-translateToCoreM (PrimOp p) = return $ EPrimitive p
+translateToCoreM :: (Show a, Eq a, PickFresh a)
+                 => LangExpr a
+                 -> PMMonad a (CoreExpr a)
+translateToCoreM = cata $ \case
+  (LLetF m b e) -> do
+    coredBinders <- forM b sequence
+    translatedBinders <- matchLetBinders (NE.toList coredBinders)
+    let b' = head translatedBinders :| tail translatedBinders
+    ELet m b' <$> e
+  (LVarFB e)  -> seqfix . CEB . inj $ e
+  (LCtorFB e) -> seqfix . CEB . inj $ e
+  (LLamFB e)  -> seqfix . CEB . inj $ e
+  (LCaseFB e) -> seqfix . CEB . inj $ e
+  (LAppFB e)  -> seqfix . CEB . inj $ e
+  (LLitFB e)  -> seqfix . CEB . inj $ e
+  (LPrimFB e) -> seqfix . CEB . inj $ e
