@@ -15,6 +15,7 @@
 
 module Lang.PatternCompiler where
 
+import AST
 import Data.Maybe(fromMaybe, isJust)
 import Control.Applicative((<|>))
 import Data.Either(partitionEithers)
@@ -23,7 +24,7 @@ import Data.Set(toList)
 import Control.Arrow(second)
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.List.NonEmpty(toList, NonEmpty(..))
+import qualified Data.List.NonEmpty as NE (toList, NonEmpty(..))
 import Control.Monad(forM)
 import Lang.Syntax
 import Core.Syntax
@@ -52,30 +53,30 @@ match [] eqs def | allEmptyPatterns eqs = emptyRule eqs def
                  | otherwise = error "failed"
 match (u:us) eqs defExpr
   | allStartWithVar eqs
-  = varRule (u :| us) eqs defExpr
-  | otherwise = ((allStartWithCtor eqs >>= Just . ctorRule (u :| us) defExpr)
-            <|> ( allStartWithNum  eqs >>= Just . numRule  (u :| us) defExpr))
+  = varRule (u NE.:| us) eqs defExpr
+  | otherwise = ((allStartWithCtor eqs >>= Just . ctorRule (u NE.:| us) defExpr)
+            <|> (allStartWithNum  eqs >>= Just . numRule  (u NE.:| us) defExpr))
             `fromMaybe'` mixtureRule (u : us) eqs defExpr
 
 --------------------------------------------------------------------------------
 -- Pattern-matching let(rec)s
 
 matchLetBinders :: (Show a, Eq a, PickFresh a)
-                => [(Pattern a, CoreExpr a)]
-                -> PMMonad a [(a, CoreExpr a)]
+                => [PatternBinderB a (CoreExpr a)]
+                -> PMMonad a [BinderB a (CoreExpr a)]
 matchLetBinders b = ((varPs ++) . join) <$> forM nonVarPs matchBind
   where
     (varPs, nonVarPs) = partitionEithers (map decideVar b)
-    decideVar :: (Pattern a, CoreExpr a)
-              -> Either (a, CoreExpr a) (Pattern a, CoreExpr a)
-    decideVar (PVar x, e) = Left (x, e)
-    decideVar (PInt p, e) = Right (PInt p, e)
-    decideVar (PCtor p1 p2, e) = Right (PCtor p1 p2, e)
+    decideVar :: PatternBinderB a (CoreExpr a)
+              -> Either (BinderB a (CoreExpr a)) (PatternBinderB a (CoreExpr a))
+    decideVar (PBinderB (PVar x) e) = Left $ BinderB x e
+    decideVar (PBinderB (PInt p) e) = Right $ PBinderB (PInt p) e
+    decideVar (PBinderB (PCtor p1 p2) e) = Right $ PBinderB (PCtor p1 p2) e
 
 matchBind :: forall a . (Show a, Eq a, PickFresh a)
-          => (Pattern a, CoreExpr a)
-          -> PMMonad a [(a, CoreExpr a)]
-matchBind (p, m) =
+          => PatternBinderB a (CoreExpr a)
+          -> PMMonad a [BinderB a (CoreExpr a)]
+matchBind (PBinderB p m) =
   forM patternVars (getBinderForSinglePatternVariable p m)
   where
     patternVars :: [a]
@@ -83,23 +84,23 @@ matchBind (p, m) =
     getBinderForSinglePatternVariable :: Pattern a
                                       -> CoreExpr a
                                       -> a
-                                      -> PMMonad a (a, CoreExpr a)
+                                      -> PMMonad a (BinderB a (CoreExpr a))
     getBinderForSinglePatternVariable pp scrutinee x = do
       v <- head <$> pickNFresh 1
-      e <- match [v] [([pp], EVar x)] EError
+      e <- match [v] [([pp], EVar x)] EErr
       case e of
-        (ECase _ a) -> return (x, ECase scrutinee a)
-        _ -> error $ "this was found: " ++ show e
+        (ECase _ a) -> return (BinderB x (ECase scrutinee a))
+        _ -> error "matchBind failed"
 
 --------------------------------------------------------------------------------
 -- Numeric literals rule
 
 numRule :: forall a . (Eq a, PickFresh a)
-        => NonEmpty a
+        => NE.NonEmpty a
         -> CoreExpr a
         -> [(Int, Equation a)]
         -> PMMonad a (CoreExpr a)
-numRule (u :| us) defExpr = foldr folder (return defExpr)
+numRule (u NE.:| us) defExpr = foldr folder (return defExpr)
   where
     folder :: (Int, Equation a)
            -> PMMonad a (CoreExpr a)
@@ -107,10 +108,10 @@ numRule (u :| us) defExpr = foldr folder (return defExpr)
     folder (n,eq) m = do
       trueExpr <- match us [eq] defExpr
       falseExpr <- m
-      let trueAlt = ("True", [], trueExpr)
-          falseAlt = ("False", [], falseExpr)
-          scrutinee = EPrimitive Eql `EAp` EVar u `EAp` ENum n
-      return $ ECase scrutinee (trueAlt :| [falseAlt])
+      let trueAlt = AlterB "True" [] trueExpr
+          falseAlt = AlterB "False" [] falseExpr
+          scrutinee = EPrim Eql `EApp` EVar u `EApp` ELit (LInt n)
+      return $ ECase scrutinee (trueAlt NE.:| [falseAlt])
 
 startsWithNum :: Equation a -> Bool
 startsWithNum (PInt _:_,_) = True
@@ -145,11 +146,11 @@ allStartWithVar :: [Equation a] -> Bool
 allStartWithVar = all startsWithVar
 
 varRule :: (Eq a, PickFresh a)
-        => NonEmpty a
+        => NE.NonEmpty a
         -> [Equation a]
         -> CoreExpr a
         -> PMMonad a (CoreExpr a)
-varRule (u :| us) eqs = match us newEqs
+varRule (u NE.:| us) eqs = match us newEqs
   where
     (vars, eqs') = stripFirstVarInEquations eqs
     triples = zip3 (repeat u) vars eqs'
@@ -167,11 +168,11 @@ allCtorsOfDataType :: [CtorName] -> PMMonad v [(CtorName, CtorArity)]
 allCtorsOfDataType names = do
   decls <- ask
   let decl = wantedDataDecl decls
-  return $ map ctorDeclToPair (Data.List.NonEmpty.toList . snd $ decl)
+  return $ map ctorDeclToPair (NE.toList . snd $ decl)
   where
     hasDataCtor :: CtorName -> DataDecl -> Bool
     hasDataCtor dataCtor (_,dataCtors) =
-      dataCtor `elem` map fst (Data.List.NonEmpty.toList dataCtors)
+      dataCtor `elem` map fst (NE.toList dataCtors)
     hasDataCtors :: [CtorName] -> DataDecl -> Bool
     hasDataCtors ctors datadecl = all (`hasDataCtor` datadecl) ctors
     wantedDataDecl decls = head $ filter (hasDataCtors names) decls
@@ -181,7 +182,7 @@ allCtorsOfDataType names = do
 ctorArity :: CtorName -> PMMonad v Int
 ctorArity name = do
   decls <- ask
-  let x = concatMap (Data.List.NonEmpty.toList . snd) decls
+  let x = concatMap (NE.toList . snd) decls
       y = head $ filter ((== name) . fst) x
   return $ (length . snd $ y) - 1
 
@@ -213,12 +214,12 @@ groupByCtor eqs = assocList
                   (name, map toAnon $ filter ((== name) . ctorName) eqs)
 
 ctorRule :: forall a . (Eq a, PickFresh a)
-         => NonEmpty a
+         => NE.NonEmpty a
          -> CoreExpr a
          -> [CtorEquation a]
          -> PMMonad a (CoreExpr a)
-ctorRule (u :| us) defaultExpr ctorEqs =
-  ECase (EVar u) <$> fmap (\(x:xs) -> x :| xs) allAlters   -- TODO: fix this
+ctorRule (u NE.:| us) defaultExpr ctorEqs =
+  ECase (EVar u) <$> fmap (\(x:xs) -> x NE.:| xs) allAlters   -- TODO: fix this
   where
     groups = groupByCtor ctorEqs
     definedAlters = mapM (groupToAlter us defaultExpr) groups
@@ -227,7 +228,7 @@ ctorRule (u :| us) defaultExpr ctorEqs =
       missingCtors <- getMissingCtors presentCtors
       forM missingCtors $ \(name, arity) -> do
         newVars <- pickNFresh arity
-        (,,) name newVars <$> match [] [] defaultExpr
+        AlterB name newVars <$> match [] [] defaultExpr
     allAlters = (++) <$> definedAlters <*> missingAlters
 
 groupToAlter :: (Eq a, PickFresh a)
@@ -241,7 +242,7 @@ groupToAlter us defaultExpr (name, eqs) = do
   let newGroupOfVars = newVars ++ us
       anonToEquation (ps,ps',e) = (ps ++ ps', e)
       qs = map anonToEquation eqs
-  (,,) name newVars <$> match newGroupOfVars qs defaultExpr
+  AlterB name newVars <$> match newGroupOfVars qs defaultExpr
 
 --------------------------------------------------------------------------------
 -- Empty rule

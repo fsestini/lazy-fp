@@ -5,6 +5,7 @@ module Lang.Parser where
 import Data.List.NonEmpty
 import Lang.Lexer
 import Lang.Syntax
+import AST
 
 import Control.Monad.Except
 
@@ -52,10 +53,10 @@ CtorDecl : CTOR colon sepBy(CTOR,'->')           { ($1, $3) }
 
 Sc   : VAR list(Pat) '=' Expr                { ($1, $2, $4) }
 
-Expr : let Bind list(SemiBind) in Expr       { Let NonRecursive ($2 :| $3) $5 }
-     | letrec Bind list(SemiBind) in Expr    { Let Recursive ($2 :| $3) $5 }
-     | '\\' list(VAR) '->' Expr              { Lam $2 $4 }
-     | case Expr in Alter list(SemiAlter)    { Case $2 ($4 :| $5) }
+Expr : let Bind list(SemiBind) in Expr       { LLet NonRecursive ($2 :| $3) $5 }
+     | letrec Bind list(SemiBind) in Expr    { LLet Recursive ($2 :| $3) $5 }
+     | '\\' list(VAR) '->' Expr              { foldr LLam $4 $2 }
+     | case Expr in Alter list(SemiAlter)    { LCase $2 ($4 :| $5) }
      | Form                                  { $1 }
 
 Pat : VAR                                    { PVar $1 }
@@ -63,25 +64,25 @@ Pat : VAR                                    { PVar $1 }
     | CTOR                                   { PCtor $1 [] }
     | '(' CTOR list1(Pat) ')'                { PCtor $2 (toList $3) }
 
-Bind : Pat '=' Expr                          { ($1, $3) }
+Bind : Pat '=' Expr                          { PBinderB $1 $3 }
 SemiBind : semi Bind                         { $2 }
 
-Alter : VAR list(VAR) '->' Expr              { ($1, $2, $4) }
+Alter : VAR list(VAR) '->' Expr              { AlterB $1 $2 $4 }
 SemiAlter : semi Alter                       { $2 }
 
-Form : Form '+' Form                         { App (App (PrimOp Add) $1) $3 }
-     | Form '-' Form                         { App (App (PrimOp Sub) $1) $3 }
-     | Form '*' Form                         { App (App (PrimOp Mul) $1) $3 }
+Form : Form '+' Form                         { LApp (LApp (LPrim Add) $1) $3 }
+     | Form '-' Form                         { LApp (LApp (LPrim Sub) $1) $3 }
+     | Form '*' Form                         { LApp (LApp (LPrim Mul) $1) $3 }
      | Fact                                  { $1 }
 
-Fact : Fact Atom                             { App $1 $2 }
+Fact : Fact Atom                             { LApp $1 $2 }
      | Atom                                  { $1 }
 
 Atom : '(' Expr ')'                          { $2 }
-     | NUM                                   { Lit (LInt $1) }
-     | VAR                                   { Var $1 }
-     | CTOR                                  { Ctor $1 }
-     | prim                                  { PrimOp $1 }
+     | NUM                                   { LLit (LInt $1) }
+     | VAR                                   { LVar $1 }
+     | CTOR                                  { LCtor $1 }
+     | prim                                  { LPrim $1 }
 
 list(p) : p list(p)                          { $1 : $2 }
         |                                    { [] }

@@ -5,6 +5,7 @@ module Lang.Lexer (
 ) where
 
 import Lang.Syntax
+import AST
 import Control.Monad.Except
 }
 
