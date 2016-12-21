@@ -119,11 +119,11 @@ dispatch (Pop n) = pop n
 dispatch (Alloc n) = alloc n
 dispatch (Slide n) = slide n
 dispatch Eval = eval'
-dispatch Add = arithmetic2 (+)
-dispatch Sub = arithmetic2 (-)
-dispatch Mul = arithmetic2 (*)
-dispatch Div = arithmetic2 div
-dispatch Comp = boolean2 (==)
+dispatch IAdd = arithmetic2 (+)
+dispatch ISub = arithmetic2 (-)
+dispatch IMul = arithmetic2 (*)
+dispatch IDiv = arithmetic2 div
+dispatch IComp = boolean2 (==)
 dispatch Print = evalPrint
 dispatch (Split n) = split n
 dispatch (Pack tag arity) = pack tag arity

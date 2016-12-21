@@ -20,6 +20,8 @@ import Data.Maybe (listToMaybe)
 import Data.List (sortBy)
 import Core.Syntax
 import Control.Monad.Reader
+import Core.CaseStripping
+import GMachine.Syntax
 
 {- Lambda-lifting algorithm
 
@@ -74,6 +76,17 @@ We can assign syntactic objects a lexical level as follows:
 Now to maximize the chances of being able to apply eta-reduction we can simply sort the extra parameters in increasing order of lexical level.
 
 -}
+
+--------------------------------------------------------------------------------
+-- AST of the result expression
+
+-- No-Lambda expressions
+newtype NLExprBase a b = NLEB ((
+    VarB :++: CtorB :++: LitB :++: AppB :++: LetB
+    :++: PrimB :++: ErrB :++: GSelB :++: GCaseB
+  ) a b) deriving (Eq)
+
+type NLExpr = FixB NLExprBase
 
 --------------------------------------------------------------------------------
 -- Auxiliary stack data structure and other utilities
@@ -360,3 +373,18 @@ pattern AEPrim e = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e)))))))))))
 pattern AEErr    = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB)))))))))))
 pattern AEScName n =
   (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (ScNameB n))))))))))))
+
+--------------------------------------------------------------------------------
+-- Patterns for NLExpr
+
+pattern NLVar e = (FixB (NLEB (Lb (VarB e))))
+pattern NLCtor e = (FixB (NLEB (Rb (Lb (CtorB e)))))
+pattern NLLit e = (FixB (NLEB (Rb (Rb (Lb (LitB e))))))
+pattern NLApp e1 e2 = (FixB (NLEB (Rb (Rb (Rb (Lb (AppB e1 e2)))))))
+pattern NLLet e1 e2 e3 = (FixB (NLEB (Rb (Rb (Rb (Rb (Lb (LetB e1 e2 e3))))))))
+pattern NLPrim e = (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e)))))))))
+pattern NLErr = (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB)))))))))
+pattern NLSel e1 e2 =
+  (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (GSelB e1 e2)))))))))))
+pattern NLGCase e =
+  (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (GCaseB e)))))))))))

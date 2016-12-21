@@ -23,15 +23,15 @@ pInstruction (Pop i) = text $ "Pop " ++ show i
 pInstruction (Alloc i) = text $ "Alloc " ++ show i
 pInstruction (Slide i) = text $ "Slide " ++ show i
 pInstruction Eval = text "Eval"
-pInstruction Add  = text "Add"
-pInstruction Sub  = text "Sub"
-pInstruction Mul  = text "Mul"
-pInstruction Div  = text "Div"
+pInstruction IAdd  = text "Add"
+pInstruction ISub  = text "Sub"
+pInstruction IMul  = text "Mul"
+pInstruction IDiv  = text "Div"
 pInstruction (Pack t a) = hsep [text "Pack", int t, int a]
 pInstruction (CaseJump _) = text "CaseJump"
 pInstruction (Split n) = text $ "Split " ++ show n
 pInstruction Print = text "Print"
-pInstruction Comp = text "Comp"
+pInstruction IComp = text "Comp"
 
 pInstructions :: GMCode -> Doc
 pInstructions = hsep . punctuate semi . fmap pInstruction

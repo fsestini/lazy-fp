@@ -15,7 +15,7 @@ data Instruction = Unwind
                  | Alloc Int
                  | Slide Int
                  | Eval
-                 | Add | Sub | Mul | Div | Comp
+                 | IAdd | ISub | IMul | IDiv | IComp
                  | Pack CtorTag CtorArity
                  | CaseJump [(Int, GMCode)]
                  | Split Int

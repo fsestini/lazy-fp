@@ -2,6 +2,7 @@
 
 module GMachine.Compiler where
 
+import qualified Data.List.NonEmpty as NE
 import Control.Monad.State.Lazy (runState)
 import Data.Tuple (swap)
 import Data.Maybe (fromMaybe)
@@ -78,12 +79,12 @@ branchMode strict nonstrict = do
 -- Turns a program into an initial state for the G-Machine. The initial code
 -- sequence finds the global main and then evaluates it. The heap is initialized
 -- so that it contains a node for each global declared.
-compile :: CoreProgram -> GMState
+compile :: GProgramN -> GMState
 compile program = GMState [] initialCode [] [] heap globals statInitial
   where
     (heap, globals) = buildInitialHeap program
 
-buildInitialHeap :: CoreProgram -> (GMHeap, GMGlobals)
+buildInitialHeap :: GProgramN -> (GMHeap, GMGlobals)
 buildInitialHeap program = swap $ runState (forM compiled allocateSc) hInitial
   where
     compiled :: [GMCompiledSc]
@@ -91,11 +92,11 @@ buildInitialHeap program = swap $ runState (forM compiled allocateSc) hInitial
 
 compiledPrimitives :: [GMCompiledSc]
 compiledPrimitives = [
-    ("+", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
-    ("-", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind]),
-    ("*", 2, [Push 1, Eval, Push 1, Eval, Mul, Update 2, Pop 2, Unwind]),
-    ("/", 2, [Push 1, Eval, Push 1, Eval, GMachine.Structures.Div, Update 2, Pop 2, Unwind]),
-    ("primComp", 2, [Push 1, Eval, Push 1, Eval, Comp, Update 2, Pop 2, Unwind])
+    ("+", 2, [Push 1, Eval, Push 1, Eval, IAdd, Update 2, Pop 2, Unwind]),
+    ("-", 2, [Push 1, Eval, Push 1, Eval, ISub, Update 2, Pop 2, Unwind]),
+    ("*", 2, [Push 1, Eval, Push 1, Eval, IMul, Update 2, Pop 2, Unwind]),
+    ("/", 2, [Push 1, Eval, Push 1, Eval, IDiv, Update 2, Pop 2, Unwind]),
+    ("primComp", 2, [Push 1, Eval, Push 1, Eval, IComp, Update 2, Pop 2, Unwind])
   ]
 
 -- Allocates a new global node for its compiled supercombinator argument
@@ -108,93 +109,92 @@ initialCode = [PushGlobal $ Left "main", Unwind]
 --------------------------------------------------------------------------------
 -- Main compilation functions
 
-compileSc :: CoreScDefn -> GMCompiledSc
+compileSc :: GScDefnN -> GMCompiledSc
 compileSc (name, args, body) =
   (name, length args, compileR body (zip args [0..]))
 
 -- Generates code which instantiates the body e of a supercombinator, and then
 -- proceeds to unwind the resulting stack.
-compileR :: CoreExpr -> [(Name, Int)] -> GMCode
+compileR :: GExprN -> [(Name, Int)] -> GMCode
 compileR e env = body ++ [Update n, Pop n, Unwind]
   where
     body = runReader (compilee e) (StrictEnv env)
     n = length env
 
-compilee :: CoreExpr -> CMonad m GMCode
-compilee (ENum n) = return [PushInt n]
-compilee (ELet NonRecursive defs e) = compileLet defs e
-compilee (ELet Recursive defs e) = compileLetRec defs e
-compilee (EBinOp binop e1 e2) = compileBinOp binop e1 e2
-compilee (EVar x) = strictWrap $ inNonStrictMode $ do
+compilee :: GExprN -> CMonad m GMCode
+compilee (GLit (LInt n)) = return [PushInt n]
+compilee (GLet NonRecursive defs e) = compileLet defs e
+compilee (GLet Recursive defs e) = compileLetRec defs e
+-- TODO: compilee (GBinOp binop e1 e2) = compileBinOp binop e1 e2
+compilee (GVar x) = strictWrap $ inNonStrictMode $ do
  env <- askEnv
  if x `elem` map fst env
    then return [Push $ lkup env x]
    else return [PushGlobal $ Left x]
-compilee e@(EAp e0 e1) = case isFullyAppliedCtor e of
+compilee e@(GApp e0 e1) = case isFullyAppliedCtor e of
   Just (t,a,exprs) -> compileFullyAppliedCtor t a exprs
   Nothing          -> case isFullyAppliedPrimitiveComparison e of
     Just (a1, a2)  -> compilePrimComp a1 a2
     Nothing        -> applicationCompilation e0 e1
-compilee (ECase e alts) =
-  branchMode (compileCase e alts) (error "compiling case in non-strict scheme")
-compilee (ECtor t a) = if a == 0
+-- compilee (GCase e alts) =
+--   branchMode (compileCase e alts) (error "compiling case in non-strict scheme")
+compilee (GPack t a) = if a == 0
   then compileFullyAppliedCtor t a []
   else return [PushGlobal $ Right (t,a)]
-compilee (ELam e1 e2) = undefined
-compilee EPrimComp = strictWrap $ return [PushGlobal $ Left "primComp"]
+compilee (GPrim Eql) = strictWrap $ return [PushGlobal $ Left "primComp"]
 
 strictWrap :: (forall m . CMonad m GMCode) -> CMonad n GMCode
 strictWrap m = branchMode (fmap (++ [Eval]) m) m
 
-applicationCompilation :: CoreExpr -> CoreExpr -> CMonad m GMCode
+applicationCompilation :: GExprN -> GExprN -> CMonad m GMCode
 applicationCompilation e0 e1 = strictWrap $ inNonStrictMode $
   compilee e1 <++> compilee e0 `inShiftedEnv` 1 <++> pure [Mkap]
 
 --------------------------------------------------------------------------------
 -- Primitive integer comparison compilation
 
-isFullyAppliedPrimitiveComparison :: CoreExpr -> Maybe (CoreExpr, CoreExpr)
-isFullyAppliedPrimitiveComparison (EAp (EAp EPrimComp a1) a2) = Just (a1,a2)
+isFullyAppliedPrimitiveComparison :: GExprN -> Maybe (GExprN, GExprN)
+isFullyAppliedPrimitiveComparison (GApp (GApp (GPrim Eql) a1) a2) = Just (a1,a2)
 isFullyAppliedPrimitiveComparison _ = Nothing
 
-compilePrimComp :: CoreExpr -> CoreExpr -> CMonad n GMCode
+compilePrimComp :: GExprN -> GExprN -> CMonad n GMCode
 compilePrimComp a1 a2 = compilee a2 <++> compilee a1 `inShiftedEnv` 1 <++>
-  branchMode (return [Comp]) (return [PushGlobal $ Left "primComp", Mkap, Mkap])
+  branchMode (return [IComp]) (return [PushGlobal $ Left "primComp", Mkap, Mkap])
 
 --------------------------------------------------------------------------------
 -- Case expression and constructors compilation
 
-isFullyAppliedCtor :: CoreExpr -> Maybe (CtorTag, CtorArity, [CoreExpr])
+isFullyAppliedCtor :: GExprN -> Maybe (CtorTag, CtorArity, [GExprN])
 isFullyAppliedCtor e = case isPartiallyAppliedCtor e of
   res@(Just (t, a, exprs)) -> if a == length exprs then res else Nothing
   Nothing                  -> Nothing
   where
-    isPartiallyAppliedCtor :: CoreExpr -> Maybe (CtorTag, CtorArity, [CoreExpr])
-    isPartiallyAppliedCtor (EAp (ECtor t a) e) = Just (t, a, [e])
-    isPartiallyAppliedCtor (EAp e1 e2) = case isPartiallyAppliedCtor e1 of
+    isPartiallyAppliedCtor :: GExprN -> Maybe (CtorTag, CtorArity, [GExprN])
+    isPartiallyAppliedCtor (GApp (GPack t a) e) = Just (t, a, [e])
+    isPartiallyAppliedCtor (GApp e1 e2) = case isPartiallyAppliedCtor e1 of
       Just (t,a,args) -> Just (t, a, args ++ [e2])
       Nothing         -> Nothing
     isPartiallyAppliedCtor _ = Nothing
 
-compileFullyAppliedCtor :: CtorTag -> CtorArity -> [CoreExpr] -> CMonad m GMCode
+compileFullyAppliedCtor :: CtorTag -> CtorArity -> [GExprN] -> CMonad m GMCode
 compileFullyAppliedCtor t a exprs =
   join <$> forM (zip (reverse exprs) [0..]) aux <++> pure [Pack t a]
   where aux (e,i) = inNonStrictMode (compilee e) `inShiftedEnv` i
 
 -- This will always be called in strict mode
-compileCase :: CoreExpr -> [CoreAlt] -> CMonad Strict GMCode
+compileCase :: GExprN -> [GAlterN] -> CMonad Strict GMCode
 compileCase e alts =
   compilee e <++> fmap (pure . CaseJump) (compileAlts compileAlternative alts)
 
-compileAlts :: (CoreAlt -> CMonad m (CtorTag, GMCode))
-            -> [CoreAlt]
+compileAlts :: (GAlterN -> CMonad m (CtorTag, GMCode))
+            -> [GAlterN]
             -> CMonad m [(CtorTag, GMCode)]
 compileAlts comp alts = do
   env <- askEnv
   forM alts comp
 
-compileAlternative :: CoreAlt -> CMonad m (CtorTag, GMCode)
-compileAlternative (t, names, body) = (,) <$> pure t <*>
+compileAlternative :: GAlterN -> CMonad m (CtorTag, GMCode)
+compileAlternative (GAlterB t names body) = (,) <$> pure t <*>
   (pure [Split n] <++> transformEnv (compilee body) newEnv <++> pure [Slide n])
   where
     n = length names
@@ -205,48 +205,49 @@ compileAlternative (t, names, body) = (,) <$> pure t <*>
 --------------------------------------------------------------------------------
 -- Binary operation compilation
 
-compileBinOp :: BinOp -> CoreExpr -> CoreExpr -> CMonad m GMCode
-compileBinOp binop e1 e2 =
-  compilee e2 <++> compilee e1 `inShiftedEnv` 1 <++> case binop of
-    Plus       -> branchMode (return [Add])
-                             (return [PushGlobal $ Left "+", Mkap, Mkap])
-    Minus      -> branchMode (return [Sub])
-                             (return [PushGlobal $ Left "-", Mkap, Mkap])
-    Mult       -> branchMode (return [Mul])
-                             (return [PushGlobal $ Left "*", Mkap, Mkap])
-    GMachine.Syntax.Div -> branchMode (return [GMachine.Structures.Div])
-                             (return [PushGlobal $ Left "/", Mkap, Mkap])
+-- compileBinOp :: BinOp -> GExprN -> GExprN -> CMonad m GMCode
+-- compileBinOp binop e1 e2 =
+--   compilee e2 <++> compilee e1 `inShiftedEnv` 1 <++> case binop of
+--     Plus       -> branchMode (return [Add])
+--                              (return [PushGlobal $ Left "+", Mkap, Mkap])
+--     Minus      -> branchMode (return [Sub])
+--                              (return [PushGlobal $ Left "-", Mkap, Mkap])
+--     Mult       -> branchMode (return [Mul])
+--                              (return [PushGlobal $ Left "*", Mkap, Mkap])
+--     GMachine.Syntax.Div -> branchMode (return [GMachine.Structures.Div])
+--                              (return [PushGlobal $ Left "/", Mkap, Mkap])
 
 --------------------------------------------------------------------------------
 -- Let and Letrec compilationo
 
-compileLet :: CoreBinders -> CoreExpr -> CMonad m GMCode
+compileLet :: GBindersN -> GExprN -> CMonad m GMCode
 compileLet = compileGenericLet (const []) compBinder
   where compBinder _ _ (e, i) = inNonStrictMode (compilee e) `inShiftedEnv` i
 
-compileLetRec :: CoreBinders -> CoreExpr -> CMonad m GMCode
+compileLetRec :: GBindersN -> GExprN -> CMonad m GMCode
 compileLetRec = compileGenericLet (return . Alloc) compBinder
   where compBinder n newEnv (e,i) =
           transformEnv (inNonStrictMode $ compilee e) newEnv
           <++> pure [Update $ n - 1 - i]
 
 type BinderCompiler =  forall m . Int -> (CEnv -> CEnv)
-                    -> (CoreExpr, Int) -> CMonad m GMCode
+                    -> (GExprN, Int) -> CMonad m GMCode
 
 compileGenericLet :: (Int -> GMCode)
                   -> BinderCompiler
-                  -> CoreBinders
-                  -> CoreExpr
+                  -> GBindersN
+                  -> GExprN
                   -> CMonad m GMCode
-compileGenericLet before compBinder defs e = pure (before n)
-  <++> join <$> forM (zip (rhssOf defs) [0..]) (compBinder n newEnv)
-  <++> transformEnv (compilee e) newEnv
-  <++> pure [Slide n]
-  where
-    n = length defs
-    newEnv env = applyAll (map (flip aUpdate)
-                          (zip (bindersOf defs) [n - 1..0]))
-                          (shiftEnv n env)
+compileGenericLet before compBinder deffs e = undefined
+-- compileGenericLet before compBinder defs e = pure (before n)
+--   <++> join <$> forM (NE.zip (rhssOf defs) (0 NE.:| [1..])) (compBinder n newEnv)
+--   <++> transformEnv (compilee e) newEnv
+--   <++> pure [Slide n]
+--   where
+--     n = length defs
+--     newEnv env = applyAll (map (flip aUpdate)
+--                           (NE.zip (bindersOf defs) (n-1 NE.:| [n - 2..0])))
+--                           (shiftEnv n env)
 
 --------------------------------------------------------------------------------
 -- Utilities
