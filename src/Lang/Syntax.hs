@@ -46,8 +46,6 @@ instance Bitraversable LangExprBase where
 
 type LangExpr = FixB LangExprBase
 type LangProgram a = [Either DataDecl (LangExpr a)]
-type DataDecl = (CtorName, NE.NonEmpty CtorDecl)
-type CtorDecl = (CtorName, NE.NonEmpty CtorName)
 type LangAlter a = AlterB a (LangExpr a)
 type ScDefn a = (a, [Pattern a], LangExpr a)
 
