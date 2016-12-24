@@ -23,7 +23,7 @@ data FixB f a = FixB { unFixB :: f a (FixB f a) }
 
 type instance Base (FixB f a) = f a
 
-instance (Bifunctor f) => Functor (f a) where
+instance {-# OVERLAPS #-} (Bifunctor f) => Functor (f a) where
   fmap = bimap id
 
 instance (Bifoldable f) => Foldable (f a) where
