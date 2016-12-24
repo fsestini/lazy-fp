@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveFoldable, GeneralizedNewtypeDeriving, DeriveFunctor,
-             StandaloneDeriving, TypeOperators, PatternSynonyms,
+{-# LANGUAGE DeriveFoldable, DeriveTraversable, GeneralizedNewtypeDeriving,
+             DeriveFunctor, StandaloneDeriving, TypeOperators, PatternSynonyms,
              TemplateHaskell #-}
 
 module Lang.Syntax where
@@ -21,12 +21,7 @@ import Data.Bitraversable
 data Pattern a = PVar a
                | PInt Int
                | PCtor CtorName [Pattern a]
-               deriving (Eq, Ord, Show, Functor, Foldable)
-
-instance Traversable Pattern where
-  traverse f (PVar x) = PVar <$> f x
-  traverse _ (PInt n) = pure $ PInt n
-  traverse f (PCtor name ps) = PCtor name <$> sequenceA (map (traverse f) ps)
+               deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 data PatternBinderB a b = PBinderB (Pattern a) b deriving (Eq, Ord, Show)
 $(deriveBifunctor ''PatternBinderB)
