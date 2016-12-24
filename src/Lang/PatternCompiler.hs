@@ -30,6 +30,7 @@ import Lang.Syntax
 import Core.Syntax
 import Data.List(nubBy)
 import PickFresh
+import qualified Data.Stream as SM
 
 type Equation a = ([Pattern a], CoreExpr a)
 type PMMonad v a = ReaderT [DataDecl] (State [v]) a
@@ -37,7 +38,7 @@ type PMMonad v a = ReaderT [DataDecl] (State [v]) a
 pickNFresh :: PickFresh v => Int -> PMMonad v [v]
 pickNFresh n = do
   soFar <- get
-  let newVars = take n $ freshStream soFar
+  let newVars = SM.take n $ freshStream soFar
   put $ soFar ++ newVars
   return newVars
 
