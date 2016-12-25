@@ -27,6 +27,9 @@ chunkBy p (x:xs) = evalState aux (x NE.:| [], xs)
 fixpoint :: Eq a => a -> (a -> a) -> a
 fixpoint x f = let y = f x in if x == y then x else fixpoint y f
 
+trd :: (a,b,c) -> c
+trd (_,_,x) = x
+
 fstOf3 :: (a,b,c) -> a
 fstOf3 (x,_,_) = x
 
