@@ -1,7 +1,9 @@
-{-# LANGUAGE TupleSections, FlexibleContexts, PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables, TupleSections, FlexibleContexts, PartialTypeSignatures #-}
+{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Types.Inference where
 
+import Pair
 import Control.Arrow (first, second)
 import Utils
 import qualified Data.Map as M
@@ -20,69 +22,62 @@ import qualified Data.Set as S
 import qualified Data.Stream as SM
 import PickFresh
 import Core.Syntax
+import Types.IMonad
+import Core.DependencyAnalysis
 
-type IMonad v a b = ReaderT (TypeContext v a, DataCtors a)
-                              (StateT (SM.Stream a) (Except String)) b
-type IMonadRes v a = IMonad v a (TySubst a a, Type a)
-type TypeContext b a = M.Map b (TypeScheme a)
-type DataCtors a = M.Map CtorName (TypeScheme a)
+fromDataDecls :: [DataDecl] -> Except String (DataCtors a)
+fromDataDecls decls = do
+  ctors <- checkReturnType decls
+  return . M.fromList . fmap toType $ ctors
+  where
+    toType (name, types) =
+      (name, SMono $ foldr1 (-->) (fmap (flip MCtor []) types))
+    checkReturnType decls = join <$> forM decls checkReturnType'
+      where checkReturnType' (parentType, ctors) = if all aux ctors
+              then return $ NE.toList ctors
+              else fail $ "data constructor of type " ++ parentType
+                        ++ " must return " ++ parentType
+              where aux decl = NE.last (snd decl) == parentType
 
-runIMonad :: TypeContext v a
-          -> DataCtors a
-          -> SM.Stream a
-          -> IMonad v a b
-          -> Except String (b, SM.Stream a)
-runIMonad tc dc str m = runStateT (runReaderT m (tc, dc)) str
+inferExpr :: _ => [DataDecl] -> CoreExpr v -> Except String (Type a)
+inferExpr dd e = do
+  dc <- fromDataDecls dd
+  snd . fst <$> runIMonad M.empty dc (freshStream []) (infer e)
 
-inferExpr :: _ => DataCtors a -> CoreExpr v -> Except String (Type a)
-inferExpr dc e = snd . fst <$> runIMonad M.empty dc (freshStream []) (infer e)
+-- inferMutrecDefns :: _
+--                  => [DataDecl]
+--                  -> [p v (CoreExpr v)]
+--                  -> Except String [Type a]
+-- inferMutrecDefns decls defns = do
+--   dc <- fromDataDecls decls
+--   snd . fst <$> runIMonad M.empty dc (freshStream []) (inferMutrec defns)
 
-liftUnifRes :: UnifRes a -> ReaderT r (StateT s (Except String)) a
-liftUnifRes = lift . lift
+inferCoreScDefns :: forall a v . (Ord a, Ord v, Show v, PickFresh a)
+                 => [DataDecl]
+                 -> [CoreScDefn v]
+                 -> Except String [(CoreScDefn v, TypeScheme a)]
+inferCoreScDefns decls defns = do
+  dc <- fromDataDecls decls
+  fst <$> runIMonad M.empty dc (freshStream [] :: SM.Stream a) inferred
+  where depAn = map (second depAnalysisTrans) defns
+        classified = classifyDefns depAn
+        inferred = inferClassifications classified
 
-ctxtSub :: TySubst a b -> TypeContext c a -> TypeContext c b
-ctxtSub phi = fmap (schemeSub phi)
-
-freeTypeVarsInContext :: Ord a => IMonad v a (S.Set a)
-freeTypeVarsInContext =
-  M.foldr S.union S.empty . fmap schemeFreeVars <$> context
-
-context :: IMonad v a (TypeContext v a)
-context = fst <$> ask
-
-dataCtors :: IMonad v a (DataCtors a)
-dataCtors = snd <$> ask
-
-getStream :: IMonad v a (SM.Stream a)
-getStream = get
-
-putStream :: SM.Stream a -> IMonad v a ()
-putStream = put
-
-schemeOfVar :: _ => v -> IMonad v a (TypeScheme a)
-schemeOfVar x = do
-  gamma <- context
-  maybe (fail errMsg) return (M.lookup x gamma)
-  where errMsg = "symbol " ++ show x ++ " not in context"
-
--- type TypeEnv a = S.Set (TypeDecl a)
--- newtype TypeDecl a = TD (a, TypeScheme a)
--- instance Eq a => Eq (TypeDecl a) where
---   (TD (x,_)) == (TD (y,_)) = x == y
--- instance Ord a => Ord (TypeDecl a) where
---   compare (TD (x,_)) (TD (y,_)) = compare x y
-
-newVar :: IMonad v a a
-newVar = do
-  (SM.Cons x stream) <- get
-  put stream
-  return x
-
-fullyInstM :: TypeScheme a -> IMonad v a (Type a)
-fullyInstM sc = do
-  (ty, str) <- fullyInst sc <$> getStream
-  putStream str
-  return ty
+inferClassifications :: _
+                     => [Classification v]
+                     -> IMonad v a [(CoreScDefn v, TypeScheme a)]
+inferClassifications []  = return []
+inferClassifications (ClNonRecursive (x,e) : cls) = do
+  ty <- snd <$> infer e
+  sc <- generalizeM ty
+  ts <- pushContext x sc (inferClassifications cls)
+  return $ ((x,e), sc) : ts
+inferClassifications (ClRecursive pairs : cls) = do
+  ts <- snd <$> inferMutrec pairs
+  sc <- forM ts generalizeM
+  let decls = zip (map fst pairs) sc
+  sc' <- decls +|-^^ inferClassifications cls
+  return $ zip pairs sc ++ sc'
 
 infer :: (Ord v, Show v, Ord a) => CoreExpr v -> IMonadRes v a
 infer (EVar x) = inferVar x
@@ -99,27 +94,6 @@ infer (EPrim Mul) = return (idSub, intTy --> intTy --> intTy)
 infer (EPrim Eql) = return (idSub, intTy --> intTy --> boolTy)
 infer (ECase e a) = inferCase e a
 
-{-
-
-case e of
-  C1 x11 x12 .. x1m1 -> e1
-  C2 x21 x22 .. x2m2 -> e2
-  ...
-  Cn xn1 xn2 .. xnmn -> en
-
-Γ ⊢ e : τ
-Γ, x11 : τ11, x12 : τ12, ..., x1m1 : τ1m1 ⊢ C1 x11 x12 ... x1m1 : τ
-...
-Γ, xn1 : τn1, xn2 : τn2, ..., xnmn : τnmn ⊢ Cn xn1 xn2 ... xnmn : τ
-Γ, x11 : τ11, x12 : τ12, ..., x1m1 : τ1m1 ⊢ e1 : τ'
-...
-Γ, xn1 : τn1, xn2 : τn2, ..., xnmn : τnmn ⊢ en : τ'
----------------------------------------------------------------------
-Γ ⊢ case e of ... : τ'
-
-
--}
-
 inferCase :: _ => CoreExpr v -> NE.NonEmpty (AlterB v (CoreExpr v)) -> IMonadRes v a
 inferCase e a = do
   (phi, scrTy) <- infer e
@@ -132,20 +106,20 @@ inferAlter scrType (AlterB name vars e) = do
   let ctxtAddition = zip vars (map MFree freshTypeVars)
       term = foldl EApp (ECtor name) (map EVar vars)
   (phi, t) <- ctxtAddition +|- infer term
-  unifier <- liftUnifRes $ unify [(t, scrType)]
+  unifier <- unifyM [(t, scrType)]
   let newDecls = zip vars $ map (unifier <> phi) freshTypeVars
   (psi, ty) <- locCSub (unifier <> phi) (newDecls +|- infer e)
   return (psi <> unifier <> phi, ty)
 
-inferAlters :: _ => Type a -> NE.NonEmpty (AlterB v (CoreExpr v)) -> IMonadRes v a
+inferAlters :: _
+            => Type a
+            -> NE.NonEmpty (AlterB v (CoreExpr v))
+            -> IMonadRes v a
 inferAlters scrType a = flip foldr1 (fmap (inferAlter scrType) a) $ \ a as -> do
   (phi, t1) <- a
   (psi, t2) <- locCSub phi as
-  unifier <- liftUnifRes $ unify [(subType psi t1, t2)]
+  unifier <- unifyM [(subType psi t1, t2)]
   return (unifier <> psi <> phi, subType unifier t2)
-
-locCSub :: TySubst a a -> IMonad v a b -> IMonad v a b
-locCSub phi = local (first $ ctxtSub phi)
 
 inferCtor :: _ => CtorName -> IMonadRes v a
 inferCtor name = do
@@ -161,12 +135,8 @@ inferApp e1 e2 = do
   (s1, ty1) <- infer e1
   (s2, ty2) <- locCSub s1 (infer e2)
   beta <- newVar
-  unifier <- liftUnifRes $ unify [(subType s2 ty1, ty2 --> MFree beta)]
+  unifier <- unifyM [(subType s2 ty1, ty2 --> MFree beta)]
   return (unifier <> s2 <> s1, unifier beta)
-
-withCtxtTrans :: (TypeContext v a -> TypeContext v a)
-              -> IMonad v a b -> IMonad v a b
-withCtxtTrans f = local (first f)
 
 inferLambda :: _ => v -> CoreExpr v -> IMonadRes v a
 inferLambda x e = do
@@ -188,32 +158,22 @@ inferLet b e = do
   (psi, t) <- locCSub phi (zip bVars ts +|-^ infer e)
   return (psi <> phi, t)
 
-generalizeM :: _ => Type a -> IMonad v a (TypeScheme a)
-generalizeM ty = flip generalize ty <$> freeTypeVarsInContext
-
-infix 4 +|-
-(+|-) :: (Ord a, Ord v)
-      => [(v, Type a)] -> IMonad v a b -> IMonad v a b
-bs +|- m = foldr (uncurry pushContext . second SMono) m bs
-
-infix 4 +|-^
-(+|-^) :: (Ord a, Ord v)
-      => [(v, Type a)] -> IMonadRes v a -> IMonadRes v a
-bs +|-^ m = do
-  bs' <- forM bs $ secondM generalizeM
-  let f = flip (foldr $ uncurry M.insert) bs'
-  withCtxtTrans f m
-
-pushContext :: _ => v -> TypeScheme a -> IMonad v a b -> IMonad v a b
-pushContext v t = withCtxtTrans (M.insert v t)
-
 inferLetrec :: _ => [BinderB v (CoreExpr v)] -> CoreExpr v -> IMonadRes v a
 inferLetrec bs e = do
-  let vars = map binderVar bs
-      bodies = map binderBody bs
-  tyVars <- replicateM (length bs) newVar
-  (phi, ts) <- zip vars (map MFree tyVars) +|- inferList bodies
-  unifier <- liftUnifRes $ unify $ zip ts (map phi tyVars)
-  let ts'' = map (unifier <> phi) tyVars
-  (psi, t) <- locCSub (unifier <> phi) (zip vars ts'' +|-^ infer e)
-  return (psi <> unifier <> phi, t)
+  (phi, ts) <- inferMutrec bs
+  (psi, t) <- locCSub phi (zip vars ts +|-^ infer e)
+  return (psi <> phi, t)
+  where vars = map binderVar bs
+
+inferMutrec :: _
+               => [p v (CoreExpr v)]
+               -> IMonad v a (TySubst a a, [Type a])
+inferMutrec defns = do
+  tyVars <- takeNewVars (length defns)
+  let decls = zip ids (map MFree tyVars)
+  (phi, ts) <- decls +|- inferList exprs
+  unifier <- unifyM $ zip ts (map phi tyVars)
+  return (unifier <> phi, map (unifier <> phi) tyVars)
+  where
+    ids = map pFst defns
+    exprs = map pSnd defns
