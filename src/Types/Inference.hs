@@ -1,4 +1,5 @@
-{-# LANGUAGE ScopedTypeVariables, TupleSections, FlexibleContexts, PartialTypeSignatures #-}
+{-# LANGUAGE GADTs, ScopedTypeVariables, TupleSections, FlexibleContexts,
+             PartialTypeSignatures #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
 module Types.Inference where
@@ -23,37 +24,69 @@ import qualified Data.Stream as SM
 import PickFresh
 import Core.Syntax
 import Types.IMonad
+import Types.DataDecl
+import Types.Fin
 import Core.DependencyAnalysis
 
-fromDataDecls :: [DataDecl] -> Except String (DataCtors a)
-fromDataDecls decls = do
-  ctors <- checkReturnType decls
-  return . M.fromList . fmap toType $ ctors
-  where
-    toType (name, types) =
-      (name, SMono $ foldr1 (-->) (fmap (flip MCtor []) types))
-    checkReturnType decls = join <$> forM decls checkReturnType'
-      where checkReturnType' (parentType, ctors) = if all aux ctors
-              then return $ NE.toList ctors
-              else fail $ "data constructor of type " ++ parentType
-                        ++ " must return " ++ parentType
-              where aux decl = NE.last (snd decl) == parentType
+-- TODO change this:
+-- it is better to use a GADT where type constructors parameterized
+-- by their arity, to enhance type safety and static guarantees
 
-inferExpr :: _ => [DataDecl] -> CoreExpr v -> Except String (Type a)
+checkArities :: [DataDecl a] -> Scheme n a -> Except String ()
+checkArities decls (SForall sc) = checkArities decls sc
+checkArities decls (SMono mono) = checkArities' mono
+  where
+    kindToArity KStar = 0
+    kindToArity (KArrow _ k) = 1 + kindToArity k
+    ddToPair (name, kind, _) = (name, kindToArity kind)
+    aritiesMap = M.fromList $ map ddToPair decls
+    checkArities' :: Monotype n a -> Except String ()
+    checkArities' (MFree t) = return ()
+    checkArities' (MBound t) = return ()
+    checkArities' (MCtor name tys) =
+      case M.lookup name aritiesMap of
+        Nothing -> fail $ name ++ "type constructor " ++ name ++ " not in scope"
+        (Just arity) -> if arity == length tys
+          then forM_ tys checkArities'
+          else fail $ "type constructor " ++ name ++ " has arity "
+               ++ show arity ++ ", but it was applied to "
+               ++ show (length tys) ++ " types"
+
+checkReturnType :: CtorName -> Scheme n a -> Except String ()
+checkReturnType parentTyName (SForall sc) = checkReturnType parentTyName sc
+checkReturnType parentTyName (SMono mono) = checkReturnType' mono
+  where
+    failure = fail $ "data constructor for type " ++ parentTyName
+              ++ " should return an element of type " ++ parentTyName
+    checkReturnType' (MFree m) = failure
+    checkReturnType' (MBound m) = failure
+    checkReturnType' (ArrowTy _ t) = checkReturnType' t
+    checkReturnType' (MCtor name _) = unless (name == parentTyName) failure
+
+checkDataDecl :: [DataDecl a] -> DataDecl a -> Except String ()
+checkDataDecl decls (name, _, ctorDecls) =
+  forM_ ctorDecls (\(_, scheme) ->
+    checkArities decls scheme >> checkReturnType name scheme)
+
+fromDataDecls :: [DataDecl a] -> Except String (DataCtors a)
+fromDataDecls decls' = forM_ decls' (checkDataDecl decls) >>
+  (return . M.fromList . join . map (\(_,_,x) -> NE.toList x) $ decls')
+  where decls = arrowDecl : decls'
+        biKind = KArrow1 (KArrow1 KStar1)
+        mono = MBound (FSucc FZero)
+               --> MBound FZero
+               --> MCtor "arrow" [MBound (FSucc FZero), MBound FZero]
+        arrowDecl :: DataDecl a
+        arrowDecl = ("arrow", biKind,
+          ("arrowCtor", SForall (SForall (SMono mono))) NE.:| [])
+
+inferExpr :: _ => [DataDecl a] -> CoreExpr v -> Except String (Type a)
 inferExpr dd e = do
   dc <- fromDataDecls dd
   snd . fst <$> runIMonad M.empty dc (freshStream []) (infer e)
 
--- inferMutrecDefns :: _
---                  => [DataDecl]
---                  -> [p v (CoreExpr v)]
---                  -> Except String [Type a]
--- inferMutrecDefns decls defns = do
---   dc <- fromDataDecls decls
---   snd . fst <$> runIMonad M.empty dc (freshStream []) (inferMutrec defns)
-
 inferCoreScDefns :: forall a v . (Ord a, Ord v, Show v, PickFresh a)
-                 => [DataDecl]
+                 => [DataDecl a]
                  -> [CoreScDefn v]
                  -> Except String [(CoreScDefn v, TypeScheme a)]
 inferCoreScDefns decls defns = do
@@ -83,18 +116,21 @@ infer :: (Ord v, Show v, Ord a) => CoreExpr v -> IMonadRes v a
 infer (EVar x) = inferVar x
 infer (EApp e1 e2) = inferApp e1 e2
 infer (ECtor name) = inferCtor name
-infer (ELit (LInt n)) = return (idSub, intTy)
+infer (ELit (LInt n)) = return (idSub, IntTy)
 infer (ELet NonRecursive bs e) = inferLet (NE.toList bs) e
 infer (ELet Recursive bs e) = inferLetrec (NE.toList bs) e
 infer (ELam x e) = inferLambda x e
 infer EErr = (idSub,) . MFree <$> newVar
-infer (EPrim Add) = return (idSub, intTy --> intTy --> intTy)
-infer (EPrim Sub) = return (idSub, intTy --> intTy --> intTy)
-infer (EPrim Mul) = return (idSub, intTy --> intTy --> intTy)
-infer (EPrim Eql) = return (idSub, intTy --> intTy --> boolTy)
+infer (EPrim Add) = return (idSub, IntTy --> IntTy --> IntTy)
+infer (EPrim Sub) = return (idSub, IntTy --> IntTy --> IntTy)
+infer (EPrim Mul) = return (idSub, IntTy --> IntTy --> IntTy)
+infer (EPrim Eql) = return (idSub, IntTy --> IntTy --> BoolTy)
 infer (ECase e a) = inferCase e a
 
-inferCase :: _ => CoreExpr v -> NE.NonEmpty (AlterB v (CoreExpr v)) -> IMonadRes v a
+inferCase :: _
+          => CoreExpr v
+          -> NE.NonEmpty (AlterB v (CoreExpr v))
+          -> IMonadRes v a
 inferCase e a = do
   (phi, scrTy) <- infer e
   (psi, ty) <- locCSub phi (inferAlters scrTy a)
