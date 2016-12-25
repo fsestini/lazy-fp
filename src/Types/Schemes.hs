@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, DataKinds, KindSignatures #-}
+{-# LANGUAGE GADTs, DataKinds, KindSignatures, PatternSynonyms #-}
 
 module Types.Schemes(
   Monotype(..),
@@ -16,8 +16,10 @@ module Types.Schemes(
   schemeSub,
   schemeFreeVars,
   (-->),
-  intTy,
-  boolTy
+  pattern IntTy,
+  pattern BoolTy,
+  pattern ArrowTy,
+  schemeArity
 ) where
 
 import Control.Monad
@@ -27,20 +29,24 @@ import Types.Fin
 import AST (CtorName)
 
 infixr 5 -->
-(-->) :: Type a -> Type a -> Type a
+(-->) :: Monotype n a -> Monotype n a -> Monotype n a
 t1 --> t2 = MCtor "arrow" [t1, t2]
 
-intTy :: Type a
-intTy = MCtor "Int" []
-
-boolTy :: Type a
-boolTy = MCtor "Bool" []
+pattern IntTy = MCtor "Int" []
+pattern BoolTy = MCtor "Bool" []
+pattern ArrowTy t1 t2 = MCtor "arrow" [t1, t2]
 
 data Monotype :: Nat -> * -> * where
   MFree :: a -> Monotype n a
   MBound :: Fin n -> Monotype n a
   MCtor :: CtorName -> [Monotype n a] -> Monotype n a
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
+
+instance Show a => Show (Monotype n a) where
+  show (ArrowTy t1 t2) = show t1 ++ " -> " ++ show t2
+  show (MFree x) = show x
+  show (MBound fin) = show . toInt $ fin
+  show (MCtor name tys) = name ++ join (map show tys)
 
 instance Functor (Monotype n) where
   fmap f (MFree x) = MFree (f x)
@@ -77,6 +83,16 @@ instance Show a => Show (Scheme n a) where
 schemeFreeVars :: Ord a => Scheme n a -> S.Set a
 schemeFreeVars (SMono m) = monoFreeVars m
 schemeFreeVars (SForall sc) = schemeFreeVars sc
+
+monoArity :: Monotype n a -> Int
+monoArity (ArrowTy t1 t2) = 1 + monoArity t2
+monoArity (MFree m) = 0
+monoArity (MBound m) = 0
+monoArity (MCtor _ _) = 0
+
+schemeArity :: Scheme n a -> Int
+schemeArity (SMono mono) = monoArity mono
+schemeArity (SForall sc) = schemeArity sc
 
 type TypeScheme a = Scheme Zero a
 type Type a = Monotype 'Zero a
