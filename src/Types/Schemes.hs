@@ -70,6 +70,10 @@ data Scheme :: Nat -> * -> * where
   SMono :: Monotype n a -> Scheme n a
   SForall :: Scheme ('Succ n) a -> Scheme n a
 
+instance Show a => Show (Scheme n a) where
+  show (SMono sc) = show sc
+  show (SForall sc) = "forall . " ++ show sc
+
 schemeFreeVars :: Ord a => Scheme n a -> S.Set a
 schemeFreeVars (SMono m) = monoFreeVars m
 schemeFreeVars (SForall sc) = schemeFreeVars sc
