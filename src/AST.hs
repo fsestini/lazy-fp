@@ -36,8 +36,7 @@ instance (Bitraversable t1, Bitraversable t2)
 
 type Name = String
 type CtorName = Name
-type DataDecl = (CtorName, NE.NonEmpty CtorDecl)
-type CtorDecl = (CtorName, NE.NonEmpty CtorName)
+type CtorArity = Int
 
 data BinderB a b = BinderB a b deriving (Eq, Ord, Show)
 $(deriveBifunctor ''BinderB)

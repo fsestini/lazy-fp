@@ -24,7 +24,6 @@ import Data.Bifoldable
 import Data.Bitraversable
 
 type CtorTag = Int
-type CtorArity = Int
 
 data GPackB a b = GPackB CtorTag CtorArity
   deriving (Eq, Show, Ord)

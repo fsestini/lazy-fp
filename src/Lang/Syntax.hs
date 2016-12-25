@@ -10,6 +10,8 @@ import Data.List(nub)
 import qualified Data.List.NonEmpty as NE (toList, NonEmpty(..))
 import Control.Arrow((&&&))
 import AST
+import Types.DataDecl
+import Types.Schemes
 import Data.Bifunctor
 import Data.Bifunctor.TH
 import Data.Bifoldable
@@ -45,7 +47,8 @@ instance Bitraversable LangExprBase where
   bitraverse f g (LEB t) = LEB <$> bitraverse f g t
 
 type LangExpr = FixB LangExprBase
-type LangProgram a = [Either DataDecl (LangExpr a)]
+-- TODO: LangProgram should probably be a bifunctor: LangProgram a v
+type LangProgram a = [Either (DataDecl a) (LangExpr a)]
 type LangAlter a = AlterB a (LangExpr a)
 type ScDefn a = (a, [Pattern a], LangExpr a)
 
@@ -64,9 +67,10 @@ chunkByName defns = flip map names $ \name ->
   where
     names = getScNames defns
 
-termConstructors :: DataDecl -> [(CtorName, Int)]
-termConstructors (_,decls) =
-  map (fst &&& (length . snd)) (NE.toList decls) -- TODO: extremely naive. fix
+-- TODO: extremely naive. fix
+termConstructors :: DataDecl a -> [(CtorName, Int)]
+termConstructors (_, _, decls) =
+  map (fst &&& (schemeArity . snd)) (NE.toList decls)
 
 patternFreeVars :: Pattern a -> [a]
 patternFreeVars = foldr (:) []

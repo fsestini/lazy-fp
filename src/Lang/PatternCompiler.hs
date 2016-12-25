@@ -15,6 +15,8 @@
 
 module Lang.PatternCompiler where
 
+import Types.Schemes
+import Types.DataDecl
 import AST
 import Data.Maybe(fromMaybe, isJust)
 import Control.Applicative((<|>))
@@ -33,7 +35,7 @@ import PickFresh
 import qualified Data.Stream as SM
 
 type Equation a = ([Pattern a], CoreExpr a)
-type PMMonad v a = ReaderT [DataDecl] (State [v]) a
+type PMMonad v a = ReaderT [DataDecl v] (State [v]) a
 
 pickNFresh :: PickFresh v => Int -> PMMonad v [v]
 pickNFresh n = do
@@ -160,8 +162,6 @@ varRule (u NE.:| us) eqs = match us newEqs
 --------------------------------------------------------------------------------
 -- Constructors rule
 
-type CtorArity = Int
-
 type CtorEquation a = ((CtorName, [Pattern a]), [Pattern a], CoreExpr a)
 type AnonCtorEquation a = ([Pattern a], [Pattern a], CoreExpr a)
 
@@ -169,23 +169,23 @@ allCtorsOfDataType :: [CtorName] -> PMMonad v [(CtorName, CtorArity)]
 allCtorsOfDataType names = do
   decls <- ask
   let decl = wantedDataDecl decls
-  return $ map ctorDeclToPair (NE.toList . snd $ decl)
+  return $ map ctorDeclToPair (NE.toList . trd $ decl)
   where
-    hasDataCtor :: CtorName -> DataDecl -> Bool
-    hasDataCtor dataCtor (_,dataCtors) =
+    hasDataCtor :: CtorName -> DataDecl a -> Bool
+    hasDataCtor dataCtor (_,_,dataCtors) =
       dataCtor `elem` map fst (NE.toList dataCtors)
-    hasDataCtors :: [CtorName] -> DataDecl -> Bool
+    hasDataCtors :: [CtorName] -> DataDecl ta -> Bool
     hasDataCtors ctors datadecl = all (`hasDataCtor` datadecl) ctors
     wantedDataDecl decls = head $ filter (hasDataCtors names) decls
-    ctorDeclToPair :: CtorDecl -> (CtorName, CtorArity)
-    ctorDeclToPair (name, names) = (name, length names - 1)
+    ctorDeclToPair :: CtorDecl a -> (CtorName, CtorArity)
+    ctorDeclToPair (name, sc) = (name, schemeArity sc)
 
 ctorArity :: CtorName -> PMMonad v Int
 ctorArity name = do
   decls <- ask
-  let x = concatMap (NE.toList . snd) decls
+  let x = concatMap (NE.toList . trd) decls
       y = head $ filter ((== name) . fst) x
-  return $ (length . snd $ y) - 1
+  return . schemeArity . snd $ y
 
 getMissingCtors :: [CtorName] -> PMMonad v [(CtorName, CtorArity)]
 getMissingCtors names = do
