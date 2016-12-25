@@ -8,13 +8,19 @@ data Fin :: Nat -> * where
   FZero :: Fin (Succ n)
   FSucc :: Fin n -> Fin (Succ n)
 
+instance Show (Fin n) where
+  show = show . toInt
+
 deriving instance Eq (Fin n)
 deriving instance Ord (Fin n)
-deriving instance Show (Fin n)
 
 data NNat :: Nat -> * where
   NZero :: NNat Zero
   NSucc :: NNat n -> NNat (Succ n)
+
+toInt :: Fin n -> Int
+toInt FZero = 0
+toInt (FSucc fin) = 1 + toInt fin
 
 raiseFin :: Fin n -> Fin (Succ n)
 raiseFin FZero = FZero
