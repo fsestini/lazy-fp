@@ -1,6 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Core.DependencyAnalysis where
+module Core.DependencyAnalysis(
+  depAnalysisTrans,
+  classifyDefns,
+  Classification(..)
+) where
 
 {- Dependency analysis
 
@@ -50,6 +54,7 @@ import Core.Syntax
 import Utils
 import AST
 import RecursionSchemes
+import Pair
 
 --------------------------------------------------------------------------------
 -- Main function
@@ -60,28 +65,33 @@ depAnalysisTrans = para $ \case
   e -> FixB . fmap snd $ e
 
 --------------------------------------------------------------------------------
--- Dependency analysis and letrec transformation
-
-data Classification a = ClNonRecursive (CoreBinder a)
-                      | ClRecursive [CoreBinder a]
-
-type DAGraphMap a = Vertex -> (CoreExpr a, a, [a])
+-- Letrec dependency analysis and transformation
 
 transformLetRec :: Ord a
                 => NE.NonEmpty (CoreBinder a)
                 -> CoreExpr a
                 -> CoreExpr a
 transformLetRec b e = foldr instClassif e classified
-  where
-    b' = NE.toList . fmap pairify $ b
-    (graph, dagMap) = dependencyGraph . computePreliminaryStructure $ b'
-    sccs = sccList graph
-    classified = classifySCCs dagMap sccs
-    pairify (BinderB x y) = (x,y)
+  where classified = classifyDefns . NE.toList . fmap toPair $ b
+
+--------------------------------------------------------------------------------
+-- Dependency analysis for generic potentially mutually-recursive definitions
+
+data Classification a = ClNonRecursive (a, CoreExpr a)
+                      | ClRecursive [(a, CoreExpr a)]
+
+type DAGraphMap a = Vertex -> (CoreExpr a, a, [a])
+
+classifyDefns :: Ord a => [(a, CoreExpr a)] -> [Classification a]
+classifyDefns defns = classifySCCs dagMap (sccList graph)
+  where (graph, dagMap) = dependencyGraph . computePreliminaryStructure $ defns
 
 instClassif :: Classification a -> CoreExpr a -> CoreExpr a
-instClassif (ClNonRecursive b) e = ELet NonRecursive (b NE.:| []) e
-instClassif (ClRecursive bs) e = ELet Recursive (head bs NE.:| tail bs) e
+instClassif (ClNonRecursive (b1,b2)) e =
+  ELet NonRecursive (BinderB b1 b2 NE.:| []) e
+instClassif (ClRecursive b) e =
+  ELet Recursive (head bs NE.:| tail bs) e
+  where bs = map (uncurry BinderB) b
 
 computePreliminaryStructure :: Ord a
                             => [(a, CoreExpr a)]
@@ -100,8 +110,7 @@ classifySCCs dagMap = map (classify dagMap . flattenSCC)
 
 classify :: Eq a => DAGraphMap a -> [Vertex] -> Classification a
 classify dagMap []  = error "cannot have empty SCC"
-classify dagMap [v] | x `elem` xs = ClRecursive [BinderB x e]
-                    | otherwise = ClNonRecursive (BinderB x e)
+classify dagMap [v] | x `elem` xs = ClRecursive [(x, e)]
+                    | otherwise = ClNonRecursive (x, e)
   where (e, x, xs) = dagMap v
-classify dagMap scc =
-  ClRecursive $ map (uncurry BinderB . swap . dropThird . dagMap) scc
+classify dagMap scc = ClRecursive $ map (swap . dropThird . dagMap) scc
