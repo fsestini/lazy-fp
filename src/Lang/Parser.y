@@ -2,6 +2,7 @@
 
 module Lang.Parser where
 
+import Control.Monad.Except
 import Data.List.NonEmpty
 import Lang.Lexer
 import Lang.Syntax
@@ -20,6 +21,7 @@ import Control.Monad.Except
     let      { TokenLet }
     letrec   { TokenLetRec }
     in       { TokenIn }
+    of       { TokenOf }
     data     { TokenData }
     where    { TokenWhere }
     NUM      { TokenNum $$ }
@@ -27,7 +29,6 @@ import Control.Monad.Except
     CTOR     { TokenCtor $$ }
     semi     { TokenSemi }
     colon    { TokenColon }
-    percent  { TokenPercent }
     case     { TokenCase }
     prim     { TokenPrimOp $$ }
     '\\'     { TokenLambda }
@@ -38,20 +39,25 @@ import Control.Monad.Except
     '*'      { TokenMul }
     '('      { TokenLParen }
     ')'      { TokenRParen }
+    '{'      { TokenLCurly }
+    '}'      { TokenRCurly }
 
 %name parseProgram
 %error { parseError }
 
 %left '+' '-'
 %left '*'
+%right '->'
+%right in
 %%
 
-Prog : sepBy(ProgElement, percent)  { toList $1 }
+Prog : sepBy(ProgElement, semi)  { toList $1 }
 
 ProgElement : DataDecl { Left $1 }
             | Sc       { Right $1 }
 
-DataDecl : data CTOR colon Kind where sepBy(CtorDecl,semi)  { ($2,$4,$6) }
+DataDecl : data CTOR colon Kind where '{' sepBy(CtorDecl,semi) '}'
+                                     { ($2,$4,$7) }
 CtorDecl : CTOR colon Type           { ($1, generalize S.empty $3) }
 
 Sc   : VAR list(Pat) '=' Expr                { ($1, $2, $4) }
@@ -66,10 +72,10 @@ AType : VAR                                  { MFree $1 }
       | CTOR list(VAR)                       { MCtor $1 (fmap MFree $2) }
       | '(' Type ')'                         { $2 }
 
-Expr : let Bind list(SemiBind) in Expr       { LLet NonRecursive ($2 :| $3) $5 }
-     | letrec Bind list(SemiBind) in Expr    { LLet Recursive ($2 :| $3) $5 }
+Expr : let '{' sepBy(Bind,semi) '}' in Expr  { LLet NonRecursive $3 $6 }
+     | letrec '{' sepBy(Bind,semi) '}' in Expr  { LLet Recursive $3 $6 }
      | '\\' list(VAR) '->' Expr              { foldr LLam $4 $2 }
-     | case Expr in sepBy(Alter,semi)        { LCase $2 $4 }
+     | case Expr of '{' sepBy(Alter,semi) '}'   { LCase $2 $5 }
      | Form                                  { $1 }
 
 Pat : VAR                                    { PVar $1 }
@@ -78,10 +84,8 @@ Pat : VAR                                    { PVar $1 }
     | '(' CTOR list1(Pat) ')'                { PCtor $2 (toList $3) }
 
 Bind : Pat '=' Expr                          { PBinderB $1 $3 }
-SemiBind : semi Bind                         { $2 }
 
-Alter : VAR list(VAR) '->' Expr              { AlterB $1 $2 $4 }
-SemiAlter : semi Alter                       { $2 }
+Alter : CTOR list(VAR) '->' Expr              { AlterB $1 $2 $4 }
 
 Form : Form '+' Form                         { LApp (LApp (LPrim Add) $1) $3 }
      | Form '-' Form                         { LApp (LApp (LPrim Sub) $1) $3 }
@@ -108,10 +112,10 @@ sepBy(p,q)  : p                              { $1 :| [] }
 
 {
 
-parseError :: [Token] -> a
-parseError _ = error "parse error"
--- parseError [] = error "unexpected end of input"
--- parseError (l:ls) = show l
+-- parseError :: [Token] -> a
+-- parseError _ = error "parse error"
+parseError [] = error "unexpected end of input"
+parseError (l:ls) = error $ show l
 
 -- parseSupercombinators :: [String] -> [ScDefn Name]
 -- parseSupercombinators = fmap $ parseSc . scanTokens
