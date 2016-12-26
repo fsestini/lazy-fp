@@ -2,7 +2,7 @@
 module Types.Unification(
   UnifEquation,
   UnifRes,
-  unify
+  unifySet
 ) where
 
 import Data.Tuple(swap)

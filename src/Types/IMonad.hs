@@ -3,40 +3,37 @@
 
 module Types.IMonad where
 
-import Control.Arrow (first, second)
 import Utils
-import qualified Data.Map as M
-import qualified Data.List.NonEmpty as NE
 import AST
-import AssocList
 import Types.Unification
 import Types.Schemes
 import Control.Monad.Except
-import Core.CaseStripping
 import Control.Monad.Reader
 import Control.Monad.State
-import RecursionSchemes
-import Control.Monad.Trans
+import Control.Arrow (first, second)
+import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Stream as SM
-import PickFresh
-import Core.Syntax
 
 type IMonad v a b = ReaderT (TypeContext v a, DataCtors a)
-                              (StateT (SM.Stream a) (Except String)) b
-type IMonadRes v a = IMonad v a (TySubst a a, Type a)
+                              (StateT (TySubst a a, SM.Stream a)
+                                (Except String)) b
 type TypeContext b a = M.Map b (TypeScheme a)
 type DataCtors a = M.Map CtorName (TypeScheme a)
 
 runIMonad :: TypeContext v a
           -> DataCtors a
+          -> TySubst a a
           -> SM.Stream a
           -> IMonad v a b
-          -> Except String (b, SM.Stream a)
-runIMonad tc dc str m = runStateT (runReaderT m (tc, dc)) str
+          -> Except String _
+runIMonad tc dc sub str m = runStateT (runReaderT m (tc, dc)) (sub, str)
 
 generalizeM :: _ => Type a -> IMonad v a (TypeScheme a)
-generalizeM ty = flip generalize ty <$> freeTypeVarsInContext
+generalizeM ty = do
+  tyy <- applyCurrentSub ty
+  ftvs <- freeTypeVarsInContext
+  return $ generalize ftvs tyy
 
 infix 4 +|-
 (+|-) :: (Ord a, Ord v)
@@ -63,14 +60,23 @@ withCtxtTrans :: (TypeContext v a -> TypeContext v a)
               -> IMonad v a b -> IMonad v a b
 withCtxtTrans f = local (first f)
 
-locCSub :: TySubst a a -> IMonad v a b -> IMonad v a b
-locCSub phi = local (first $ ctxtSub phi)
+unify :: _ => [UnifEquation a] -> IMonad v a ()
+unify eqs = do
+  cSub <- currentSub
+  (lift . lift $ unifySet cSub eqs) >>= pushSub
 
-unifyM :: _ => [UnifEquation a] -> IMonad v a (TySubst a a)
-unifyM eqs = lift . lift $ unify eqs
+setSub :: TySubst a a -> IMonad v a ()
+setSub sub = do
+  (cSub,x) <- get
+  put (sub,x)
 
-ctxtSub :: TySubst a b -> TypeContext c a -> TypeContext c b
-ctxtSub phi = M.map (schemeSub phi)
+pushSub :: TySubst a a -> IMonad v a ()
+pushSub sub = do
+  cSub <- currentSub
+  setSub $ sub <> cSub
+
+currentSub :: IMonad v a (TySubst a a)
+currentSub = fst <$> get
 
 freeTypeVarsInContext :: Ord a => IMonad v a (S.Set a)
 freeTypeVarsInContext =
@@ -83,21 +89,38 @@ dataCtors :: IMonad v a (DataCtors a)
 dataCtors = snd <$> ask
 
 getStream :: IMonad v a (SM.Stream a)
-getStream = get
+getStream = snd <$> get
 
 putStream :: SM.Stream a -> IMonad v a ()
-putStream = put
+putStream str = do
+  (x,_) <- get
+  put (x,str)
+
+applyCurrentSubS :: TypeScheme a -> IMonad v a (TypeScheme a)
+applyCurrentSubS sc = do
+  cSub <- currentSub
+  return $ schemeSub cSub sc
+
+applyCurrentSub :: Type a -> IMonad v a (Type a)
+applyCurrentSub ty = do
+  cSub <- currentSub
+  return $ subType cSub ty
+
+applyCurrentSubV :: a -> IMonad v a (Type a)
+applyCurrentSubV x = do
+  cSub <- currentSub
+  return $ cSub x
 
 schemeOfVar :: _ => v -> IMonad v a (TypeScheme a)
 schemeOfVar x = do
   gamma <- context
-  maybe (fail errMsg) return (M.lookup x gamma)
+  maybe (fail errMsg) applyCurrentSubS (M.lookup x gamma)
   where errMsg = "symbol " ++ show x ++ " not in context"
 
 newVar :: IMonad v a a
 newVar = do
-  (SM.Cons x stream) <- get
-  put stream
+  (SM.Cons x stream) <- getStream
+  putStream stream
   return x
 
 takeNewVars :: Int -> IMonad v a [a]
