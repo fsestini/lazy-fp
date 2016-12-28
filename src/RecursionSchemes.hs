@@ -17,11 +17,27 @@ module RecursionSchemes(
 import Data.Bitraversable
 import Data.Bifunctor
 import Data.Bifoldable
-import Data.Functor.Foldable
+-- import Data.Functor.Foldable
 
 data FixB f a = FixB { unFixB :: f a (FixB f a) }
 
+type family Base (t :: *) :: * -> *
 type instance Base (FixB f a) = f a
+
+class Functor (Base t) => Recursive t where
+  project :: t -> Base t t
+  cata :: (Base t a -> a) -- ^ a (Base t)-algebra
+       -> t               -- ^ fixed point
+       -> a               -- ^ result
+  cata f = c where c = f . fmap c . project
+
+  para :: (Base t (t, a) -> a) -> t -> a
+  para t = p where p x = t . fmap ((,) <*> p) $ project x
+
+hylo :: Functor f => (f b -> b) -> (a -> f a) -> a -> b
+hylo f g = h where h = f . fmap h . g
+
+newtype Fix f = Fix (f (Fix f))
 
 instance {-# OVERLAPS #-} (Bifunctor f) => Functor (f a) where
   fmap = bimap id
