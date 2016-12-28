@@ -22,8 +22,11 @@ module Types.Schemes(
   schemeArity
 ) where
 
+import PickFresh
+import Data.Maybe (fromMaybe)
 import Control.Monad
 import qualified Data.Set as S
+import qualified Data.Map as M
 import Data.Stream hiding (map)
 import Types.Fin
 import AST (CtorName)
@@ -75,10 +78,6 @@ monoFreeVars (MCtor _ ms) = foldr (S.union . monoFreeVars) S.empty ms
 data Scheme :: Nat -> * -> * where
   SMono :: Monotype n a -> Scheme n a
   SForall :: Scheme ('Succ n) a -> Scheme n a
-
-instance Show a => Show (Scheme n a) where
-  show (SMono sc) = show sc
-  show (SForall sc) = "forall . " ++ show sc
 
 schemeFreeVars :: Ord a => Scheme n a -> S.Set a
 schemeFreeVars (SMono m) = monoFreeVars m
@@ -153,3 +152,40 @@ occurs x ty = S.member x $ monoFreeVars ty
 schemeSub :: TySubst a b -> Scheme n a -> Scheme n b
 schemeSub phi (SMono m) = SMono . subType phi $ m
 schemeSub phi (SForall sc) = SForall (schemeSub phi sc)
+
+--------------------------------------------------------------------------------
+-- Show instance for type schemes
+
+instance Show a => Show (Scheme n a) where
+  show = showAux M.empty
+
+showAux :: Show a => M.Map Int String -> Scheme n a -> String
+showAux m (SMono mono) = showAuxMono m mono
+showAux m (SForall sc) = "∀ " ++ newSym ++ " . " ++
+  showAux (M.insert 0 newSym (M.mapKeys (+1) m)) sc
+  where
+    newSym = show (pickNTh (M.size m) :: Greek)
+
+showAuxMono :: Show a => M.Map Int String -> Monotype n a -> String
+showAuxMono m (MFree free) = show free
+showAuxMono m (MBound b) =
+  fromMaybe (error "show scheme") (M.lookup (toInt b) m)
+showAuxMono m (ArrowTy t1 t2) =
+  "(" ++ showAuxMono m t1 ++ ") -> " ++ showAuxMono m t2
+showAuxMono m (MCtor name tys) =
+  name ++ join (map (\t -> "(" ++ showAuxMono m t ++ ")") tys)
+
+newtype Greek = G { unG :: Int }
+
+instance Show Greek where
+  show (G i) = fromMod (i `mod` 4) ++
+               let d = i `div` 4 in if d == 0 then "" else show (d - 1)
+    where
+      fromMod 0 = "α"
+      fromMod 1 = "β"
+      fromMod 2 = "γ"
+      fromMod 3 = "δ"
+
+instance PickFresh Greek where
+  pickFresh [] = G 0
+  pickFresh used = G $ maximum (map unG used) + 1
