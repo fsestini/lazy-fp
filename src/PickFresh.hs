@@ -10,6 +10,9 @@ class PickFresh a where
 freshStream :: PickFresh a => [a] -> S.Stream a
 freshStream used = let x = pickFresh used in S.Cons x (freshStream (x : used))
 
+pickNTh :: PickFresh a => Int -> a
+pickNTh n = pickFresh $ S.take n (freshStream [])
+
 instance PickFresh String where
   pickFresh strings = tryString strings 0
     where
