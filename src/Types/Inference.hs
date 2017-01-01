@@ -9,7 +9,7 @@ import Pair
 import PickFresh
 import Control.Arrow(second)
 import Control.Monad.Except
-import qualified Data.Stream as SM
+import qualified Stream as SM
 import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NE
 import Types.Schemes

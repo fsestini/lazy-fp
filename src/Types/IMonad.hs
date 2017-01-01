@@ -13,7 +13,7 @@ import Control.Monad.State
 import Control.Arrow (first, second)
 import qualified Data.Map as M
 import qualified Data.Set as S
-import qualified Data.Stream as SM
+import qualified Stream as SM
 
 type IMonad v a b = ReaderT (TypeContext v a, DataCtors a)
                               (StateT (TySubst a a, SM.Stream a)
