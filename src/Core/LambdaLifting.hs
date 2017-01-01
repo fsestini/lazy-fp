@@ -1,27 +1,29 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleContexts,
-             LambdaCase, PatternSynonyms, TypeOperators, TypeSynonymInstances,
-             FlexibleInstances, TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts, LambdaCase, PatternSynonyms, TypeOperators,
+             TypeSynonymInstances, FlexibleInstances, ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TemplateHaskell #-}
 
-module Core.LambdaLifting --(liftSupercombinators, PickNew)
-  where
+module Core.LambdaLifting (
+    liftSupercombinators
+  , NLExprBase
+  , NLExpr
+  , NLScDefn
+  ) where
 
+import Control.Arrow((***))
+import PickFresh
 import Data.Foldable
 import qualified Data.Set as S
-import qualified Data.List.NonEmpty as NE
-import Data.Bifunctor
 import Data.Bifunctor.TH
-import Data.Bifoldable
-import Data.Bitraversable
 import AST
-import RecursionSchemes
 import Utils
 import Control.Monad.State.Lazy
-import Data.Maybe (listToMaybe)
 import Data.List (sortBy)
-import Core.Syntax
 import Control.Monad.Reader
 import Core.CaseStripping
 import GMachine.Syntax
+import Data.Comp.Bifun
+import MonadVar
 
 {- Lambda-lifting algorithm
 
@@ -69,7 +71,7 @@ We should orer the free variables, with those bound at inner levels coming last
 in the parameter list of the supercombinator.
 
 We can assign syntactic objects a lexical level as follows:
-1. the level of a lambda abstraction is one more than the number of lambda abstractions which textually enclose it. Id there is node, then its level is 1.
+1. the level of a lambda abstraction is one more than the number of lambda abstractions which textually enclose it. If there is none, then its level is 1.
 2. The level of a variable is the level of the lambda abstraction that binds it
 3. the level of a constant is 0
 
@@ -80,240 +82,226 @@ Now to maximize the chances of being able to apply eta-reduction we can simply s
 --------------------------------------------------------------------------------
 -- AST of the result expression
 
--- No-Lambda expressions
-newtype NLExprBase a b = NLEB ((
-    VarB :++: CtorB :++: LitB :++: AppB :++: LetB
-    :++: PrimB :++: ErrB :++: GSelB :++: GCaseB
-  ) a b) deriving (Eq)
+data Ann a b = Free | Lam Int | Let Int
+type AnnVarB = VarB :*: Ann
 
-type NLExpr = FixB NLExprBase
+$(deriveBifunctor ''Ann)
+$(deriveBifoldable ''Ann)
+$(deriveBitraversable ''Ann)
+
+iAnnVarLam :: (AnnVarB :<: f) => a -> Int -> Term f a
+iAnnVarLam x i = inject $ VarB x :*: Lam i
+
+iAnnVarLet :: (AnnVarB :<: f) => a -> Int -> Term f a
+iAnnVarLet x i = inject $ VarB x :*: Let i
+
+iAnnVarFree :: (AnnVarB :<: f) => a -> Term f a
+iAnnVarFree x = inject $ VarB x :*: Free
+
+-- No-Lambda expressions
+type NLExprBase = VarB :+: CtorB :+: LitB :+: AppB
+                    :+: LetB :+: PrimB :+: ErrB :+: GSelB :+: GCaseB
+type NLExpr = Term NLExprBase
+type NLScDefn v = (v, [v], NLExpr v)
+
+-- Annotated CSExpr expressions
+type AnnBase = AnnVarB :+: CtorB :+: LitB :+: AppB
+               :+: LetB :+: LamB :+: PrimB :+: ErrB
+               :+: GSelB :+: GCaseB
+type Annotated = Term AnnBase
+type AScDefn a = (a, Annotated a)
 
 --------------------------------------------------------------------------------
--- Auxiliary stack data structure and other utilities
+-- Term annotation
 
-type Stack a = [a]
+type VRest = LamB :+: LetB :+: CtorB :+: LitB :+: AppB :+: PrimB
+            :+: ErrB :+: GSelB :+: GCaseB
 
-push :: a -> Stack a -> Stack a
-push x st = x : st
+annotate :: Ord a => CSExpr a -> Annotated a
+annotate = runEmpty . cataM (monadVarTrans (split alg1 alg2))
+  where
+    alg1 (VarB x) = do
+      env <- varEnv
+      case lookupVarEnv x env of
+        (Just (LamBound y)) -> return $ inject $ VarB x :*: Lam y
+        (Just (LetBound y)) -> return $ inject $ VarB x :*: Let y
+        Nothing -> return $ inject $ VarB x :*: Free
+    alg2 :: VRest a (Annotated a) -> VarReader a (Annotated a)
+    alg2 = return . inject
 
-search :: (a -> Bool) -> Stack a -> a
-search _ [] = error "not found"
-search p (x : xs) | p x = x
-                  | otherwise = search p xs
+--------------------------------------------------------------------------------
+-- Free lambda-bound variables
+
+                  -- lam, let
+freeNLVars :: forall a . Ord a
+           => AnnNLExpr a
+           -> (S.Set (a,Int), S.Set (a,Int))
+freeNLVars = runEmpty . cataM (monadVarLetTrans (split alg1 alg2))
+  where
+    alg1 (VarB v :*: Let i) = do
+      (LetLevel ll) <- letLevel :: VarReader a (LetLevel a)
+      if i > ll
+        then return (S.empty, S.singleton (v,i))
+        else return (S.empty, S.empty)
+    alg1 (VarB v :*: Lam i) = return (S.singleton (v,i), S.empty)
+    alg1 _ = return (S.empty, S.empty)
+    alg2 :: BareBase a (S.Set (a,Int), S.Set (a,Int))
+         -> VarReader a (S.Set (a,Int), S.Set (a,Int))
+    alg2 = return . foldr unioner (S.empty, S.empty)
+    unioner (x,y) (z,w) = (S.union x z, S.union y w)
 
 --------------------------------------------------------------------------------
 -- Annotation of abstract syntax trees with binding levels
 
-data ScNameB a b = ScNameB a deriving (Eq, Ord, Show)
-$(deriveBifunctor ''ScNameB)
-$(deriveBifoldable ''ScNameB)
-$(deriveBitraversable ''ScNameB)
+genDeannotate :: forall p p' q a b .
+                 (p :=: AnnVarB :+: p', VarB :<: q)
+              => (p' a b -> q a b) -> p a b -> q a b
+genDeannotate = split vAlg
+  where
+    vAlg :: AnnVarB a b -> q a b
+    vAlg (VarB x :*: _) = inj $ VarB x
 
-data BoundB a b = BoundB a Int deriving (Eq, Ord, Show)
-$(deriveBifunctor ''BoundB)
-$(deriveBifoldable ''BoundB)
-$(deriveBitraversable ''BoundB)
+deannotate :: AnnNLExpr a -> NLExpr a
+deannotate = Term . deann . fmap deannotate . unTerm
+  where deann = genDeannotate
+          (inj :: BareBase a (NLExpr a) -> NLExprBase a (NLExpr a))
 
-newtype AnnotatedB a b = AB (
-  (BoundB :++: CtorB :++: LitB :++: AppB :++: LetB
-  :++: CaseB :++: LamB :++: PrimB :++: ErrB :++: ScNameB) a b)
-  deriving (Bifunctor, Bifoldable, Eq, Ord, Show)
+annotateSc :: Ord a => CSScDefn a -> AScDefn a
+annotateSc (name,e) = (name, annotate e)
 
-instance Bitraversable AnnotatedB where
-  bitraverse f g (AB t) = AB <$> bitraverse f g t
-
-type Annotated = FixB AnnotatedB
-
-instance (Eq a) => Eq (Annotated a) where
-  (FixB e1) == (FixB e2) = e1 == e2
-
-data AnnotEnv a = AnnotEnv { stack :: Stack (BindingInfo a)
-                           , currentLevel :: Int
-                           , scNames :: [a] }
-
-type AnnotatedAlter a = AnnotatedB a (Annotated a)
-type AScDefn a = (a, [a], Annotated a)
-type BindingInfo a = (a, Int)
-
-aFreeVars :: Ord a => Annotated a -> S.Set (BindingInfo a)
-aFreeVars = cata $ \case
-  (BoundFA x i) -> S.singleton (x,i)
-  (AppFA e1 e2) -> e1 `S.union` e2
-  (LamFA x e) -> e `S.difference` S.singleton (x,0)
-  (LetFA m b e) -> (e `S.difference` lhss) `S.union`
-                   (rhsFreeVars `S.difference` recNonRec m lhss S.empty)
-    where
-      lhss = fromFoldable $ NE.map (\b -> (binderVar b,0)) b
-      rhsFreeVars = foldr S.union S.empty (NE.map binderBody b)
-  (CaseFA e a) -> e `S.union` foldr S.union S.empty (NE.map alterFreeVars a)
-    where
-      alterFreeVars (AlterB _ vars e) =
-        e `S.difference` (S.fromList . map (\x -> (x,0)) $ vars)
-  _ -> S.empty
-
-shiftPushSymbols :: [a] -> AnnotEnv a -> AnnotEnv a
-shiftPushSymbols symbols env = env { currentLevel = level + 1
-                                   , stack = foldr push (stack env) toPush }
-  where level = currentLevel env
-        toPush = map (\x -> (x, level + 1)) symbols
-
-pushSymbols :: [a] -> AnnotEnv a -> AnnotEnv a
-pushSymbols symbols env = env { stack = foldr push (stack env) toPush }
-  where level = currentLevel env
-        toPush = map (\x -> (x, level)) symbols
-
-annotate :: Eq a => CoreExpr a -> Reader (AnnotEnv a) (Annotated a)
-annotate = cata $ \case
-  (EVarF x) -> do
-    env <- ask
-    if x `elem` scNames env
-      then return $ AEScName x
-      else let (_,l) = search ((== x) . fst) (stack env) in return $ AEBound x l
-  (ELamF x e) -> AELam x <$> local (shiftPushSymbols [x]) e
-  (ELetF m b e) -> AELet m <$> b' <*> pusher e
-    where symbols = NE.toList . NE.map binderVar $ b
-          b' = forM b (sequenceA . second pusher)
-          pusher = local (shiftPushSymbols symbols)
-  (ECaseF e a) -> AECase <$> e <*> forM a annotAlter
-    where annotAlter (AlterB name vars e') =
-            AlterB name vars <$> local (shiftPushSymbols vars) e'
-  (ELitFB e)  -> seqfix . AB . inj $ e
-  (ECtorFB e) -> seqfix . AB . inj $ e
-  (EAppFB e)  -> seqfix . AB . inj $ e
-  (EPrimFB e) -> seqfix . AB . inj $ e
-
-deannotate :: Annotated a -> CoreExpr a
-deannotate = cata $ \case
-  (ScNameFA name) -> EVar name
-  (BoundFA x _) -> EVar x
-  (CtorFAB e)   -> FixB . CEB $ inj e
-  (LitFAB e)    -> FixB . CEB $ inj e
-  (AppFAB e)    -> FixB . CEB $ inj e
-  (LetFAB e)    -> FixB . CEB $ inj e
-  (CaseFAB e)   -> FixB . CEB $ inj e
-  (LamFAB e)    -> FixB . CEB $ inj e
-  (PrimFAB e)   -> FixB . CEB $ inj e
-  (ErrFAB e)    -> FixB . CEB $ inj e
-
-annotateSc :: Eq a => [a] -> CoreScDefn a -> AScDefn a
-annotateSc names (name,vars,e) = (name, vars, runReader (annotate e) env)
-  where env = AnnotEnv (zip vars [1..]) (length vars) names
-
-deannotateSc :: AScDefn a -> CoreScDefn a
+deannotateSc :: AnnNLScDefn a -> NLScDefn a
 deannotateSc = third deannotate
 
-annotateSupercombinators :: Eq a => [CoreScDefn a] -> [AScDefn a]
-annotateSupercombinators scs = map (annotateSc (map fstOf3 scs)) scs
+annotateScs :: Ord a => [CSScDefn a] -> [AScDefn a]
+annotateScs = map annotateSc
 
-deannotateSupercombinators :: [AScDefn a] -> [CoreScDefn a]
-deannotateSupercombinators = map deannotateSc
+deannotateScs :: [AnnNLScDefn a] -> [NLScDefn a]
+deannotateScs = map deannotateSc
+
+--------------------------------------------------------------------------------
+-- Auxiliary monad for lambda lifting
+
+type LiftMonad a b = ReaderT [a] (State [AnnNLScDefn a]) b
+
+runLiftMonad :: LiftMonad a b
+             -> [a]
+             -> [AnnNLScDefn a]
+             -> (b, [AnnNLScDefn a])
+runLiftMonad m = runState . runReaderT m
+
+freshName :: PickFresh a => LiftMonad a a
+freshName = do
+  nms <- ask
+  scDefns <- get
+  let nms' = map fstOf3 scDefns
+  return $ pickFresh $ nms ++ nms'
+
+pushSc :: AnnNLScDefn a -> LiftMonad a ()
+pushSc sc = do
+  defns <- get
+  put (sc : defns)
 
 --------------------------------------------------------------------------------
 -- Lambda lifting
 
-class PickNew a where
-  pickNew :: [a] -> a
+type LRest = AnnVarB :+: LetB :+: CtorB :+: LitB :+: AppB :+: PrimB
+            :+: ErrB :+: GSelB :+: GCaseB
 
-instance PickNew Name where
-  pickNew [] = "X"
-  pickNew names = longest ++ "1"
-    where maxLen = maximum (map length names)
-          longest = head $ filter (\name -> length name == maxLen) names
+type BareBase = LetB :+: CtorB :+: LitB :+: AppB :+: PrimB
+              :+: ErrB :+: GSelB :+: GCaseB
 
-hasAbstractions :: Annotated a -> Bool
-hasAbstractions = cata $ \case
-  (LamFA _ _) -> True
-  (BoundFA _ _) -> False
-  (CtorFA _) -> False
-  (LitFA _) -> False
-  (PrimFA _) -> False
-  ErrFA -> False
-  (ScNameFA _) -> False
-  e -> or e
+type AnnNLBase = AnnVarB :+: BareBase
+type AnnNLExpr = Term AnnNLBase
 
-type LiftMonad a b = ReaderT [a] (State [AScDefn a]) b
+type AnnNLScDefn v = (v, [v], AnnNLExpr v)
 
-lambdaLift :: (Ord a, PickNew a) => Annotated a -> LiftMonad a (Annotated a)
-lambdaLift = para $ \case
-  (LamFA x (body,r)) | (not . hasAbstractions) body -> do
-    nms <- ask
-    scDefns <- lift get
-    let names = nms ++ map fstOf3 scDefns
-        -- TODO check if i'm picking the right frees
-        frees = aFreeVars (AELam x body)
-        sorted = sortBy (second' compare) . S.toList $ frees
-        name = pickNew names
-        scDef = (name, map fst sorted ++ [x], body)
-        newExpr = foldl (\e' (x',i) -> AEApp e' (AEBound x' i))
-                    (AEScName name) sorted
-    lift $ put (scDef : scDefns)
-    return newExpr
-  e -> seqfix . fmap snd $ e
-
-stepLiftSupercombinatorBody :: (PickNew a, Ord a) =>
-  a -> (Annotated a,[AScDefn a]) -> (Annotated a, [AScDefn a])
-stepLiftSupercombinatorBody name (e,scs) = (newExpr, scs ++ newDefns)
-  where names = map fstOf3
-        (newExpr,newDefns) =
-          runState (runReaderT (lambdaLift e) (names scs ++ [name])) []
-
-liftSupercombinator :: (PickNew a, Ord a) =>
-  AScDefn a -> [AScDefn a] -> [AScDefn a]
-liftSupercombinator (name,vars,body) others =
-  (name, vars, newBody) : newOthers
+sortPair :: Ord a => [(a,Int)] -> [(a,Int)]
+sortPair = sortBy ordering
   where
-    (newBody, newOthers) =
-      fixpoint (body, others) (stepLiftSupercombinatorBody name)
+    ordering (x,i) (y,j) = case compare i j of
+      EQ -> compare x y
+      z -> z
 
-stepLiftSupercombinators :: (PickNew a, Ord a) => [AScDefn a] -> [AScDefn a]
-stepLiftSupercombinators scs = case pickNonLifted scs of
-  Nothing -> scs
-  Just sc -> let others = filter (/= sc) scs
-             in liftSupercombinator sc others
+lambdaLift :: forall a . (Ord a, PickFresh a)
+           => Annotated a -> LiftMonad a (AnnNLExpr a)
+lambdaLift = cataM (split alg1 alg2)
   where
-    pickNonLifted scs' = listToMaybe $ filter (hasAbstractions . thirdOf3) scs'
+    alg1 :: LamB a (AnnNLExpr a) -> LiftMonad a (AnnNLExpr a)
+    alg1 (LamB x e) = do
+      name <- freshName
+      let listSorter = reverse . sortPair . S.toList . S.insert (x,0)
+          (lamVars, letVars) = listSorter *** listSorter $ freeNLVars e
+          scDef = (name, map fst letVars ++ map fst lamVars, e)
+          lamAnnVars = map (uncurry iAnnVarLam) lamVars
+          letAnnVars = map (uncurry iAnnVarLet) letVars
+          newExpr = foldl' iApp (iAnnVarFree name)
+                                (letAnnVars ++ init lamAnnVars)
+      pushSc scDef
+      return newExpr
+    alg2 :: LRest a (AnnNLExpr a) -> LiftMonad a (AnnNLExpr a)
+    alg2 = return . inject
 
-liftAnnotatedSupercombinators :: (PickNew a, Ord a)
-                              => [AScDefn a] -> [AScDefn a]
-liftAnnotatedSupercombinators scs = fixpoint scs stepLiftSupercombinators
+liftAScM :: (PickFresh a, Ord a)
+         => AScDefn a -> LiftMonad a (AnnNLScDefn a)
+liftAScM (name, body) = (name, [],) <$> lambdaLift body
+
+liftAScsM :: (PickFresh a, Ord a)
+          => [AScDefn a] -> LiftMonad a [AnnNLScDefn a]
+liftAScsM = mapM liftAScM
+
+liftAScs :: (PickFresh a, Ord a) => [AScDefn a] -> [AnnNLScDefn a]
+liftAScs defns =
+  uncurry (++) $ runLiftMonad (liftAScsM defns) (map fst defns) []
 
 --------------------------------------------------------------------------------
 -- Eta-reduction of supercombinator definitions
 
-stepEtaReduce :: Eq a => AScDefn a -> AScDefn a
-stepEtaReduce def@(name, vars@(_:_), AEApp e1 (AEBound x _)) =
-  if lastVar == x
-    then (name, init vars, e1)
+pattern NLVar :: a -> NLExpr a
+pattern NLVar x = (Term (Inl (VarB x)))
+
+pattern NLApp :: NLExpr a -> NLExpr a -> NLExpr a
+pattern NLApp x1 x2 = (Term (Inr (Inr (Inr (Inl (AppB x1 x2))))))
+
+stepEtaReduce :: Eq a => NLScDefn a -> NLScDefn a
+stepEtaReduce def@(name, vars@(_:_), NLApp e (NLVar x)) =
+  if last vars == x
+    then (name, init vars, e)
     else def
-  where lastVar = last vars
 stepEtaReduce def = def
 
-etaReduce :: Eq a => AScDefn a -> AScDefn a
+instance Eq a => Eq (NLExpr a) where
+  (Term t1) == (Term t2) = t1 == t2
+
+etaReduce :: Eq a => NLScDefn a -> NLScDefn a
 etaReduce = flip fixpoint stepEtaReduce
 
-etaReduceSupercombinators :: Eq a => a -> [AScDefn a] -> [AScDefn a]
-etaReduceSupercombinators main scs = filter (not . strictIdFilter) $
-  foldr folder etaReduced identities
+etaReduceScs :: Eq a => a -> [NLScDefn a] -> [NLScDefn a]
+etaReduceScs main scs =
+  filter (not . strictIdFilter) $ foldr folder etaReduced identities
   where etaReduced = map etaReduce scs
         filtered = filter idFilter etaReduced
         identities = filter ((/= main) . fst) $
-          map (\(n,_,AEScName m) -> (n,m)) filtered
-        idFilter (_, [], AEScName _) = True
+          map (\(n, _, NLVar m) -> (n,m)) filtered
+        idFilter (_, [], NLVar _) = True
         idFilter _ = False
-        strictIdFilter (name, [], AEScName name') = name == name'
+        strictIdFilter (name, [], NLVar name') = name == name'
         strictIdFilter _ = False
         folder p list = runReader (applyScSubstitution list) p
 
 type SubstEnv a b = Reader (a,a) b
 
-substituteScName :: Eq a => Annotated a -> SubstEnv a (Annotated a)
-substituteScName = cata $ \case
-  (ScNameFA n) -> do
-    (lhs,rhs) <- ask
-    if lhs == n then return $ AEScName rhs else return $ AEScName n
-  e -> seqfix e
+substituteScName :: Eq a => NLExpr a -> SubstEnv a (NLExpr a)
+substituteScName = cataM (split alg1 alg2)
+  where
+    alg1 (VarB x) = do
+      (lhs, rhs) <- ask
+      if lhs == x
+        then return . inject $ VarB rhs
+        else return . inject $ VarB x
+    alg2 :: BareBase a (NLExpr a) -> SubstEnv a (NLExpr a)
+    alg2 = return . inject
 
-applyScSubstitution :: Eq a => [AScDefn a] -> SubstEnv a [AScDefn a]
+applyScSubstitution :: Eq a => [NLScDefn a] -> SubstEnv a [NLScDefn a]
 applyScSubstitution = mapM $ \(name,v,e) -> (do
   (lhs,rhs) <- ask
   if name == lhs then return $ (,,) rhs v else return $ (,,) name v)
@@ -326,65 +314,9 @@ applyScSubstitution = mapM $ \(name,v,e) -> (do
 -- group in which no supercombinator has lambda abstractions in their bodies.
 -- It takes as parameter the identifier of the main supercombinator, so that it
 -- does not get replaced during eta reduction.
-liftSupercombinators :: (Ord a, PickNew a)
+liftSupercombinators :: (Ord a, PickFresh a)
                      => a
-                     -> [CoreScDefn a]
-                     -> [CoreScDefn a]
-liftSupercombinators main = deannotateSupercombinators
-  . etaReduceSupercombinators main
-  . liftAnnotatedSupercombinators
-  . annotateSupercombinators
-
---------------------------------------------------------------------------------
--- Pattern declarations
-
-pattern BoundFA x i = (AB (Lb (BoundB x i)))
-pattern CtorFA e = (AB (Rb (Lb (CtorB e))))
-pattern LitFA e = (AB (Rb (Rb (Lb (LitB e)))))
-pattern AppFA e1 e2 = (AB (Rb (Rb (Rb (Lb (AppB e1 e2))))))
-pattern LetFA e1 e2 e3 = (AB (Rb (Rb (Rb (Rb (Lb (LetB e1 e2 e3)))))))
-pattern CaseFA e1 e2 = (AB (Rb (Rb (Rb (Rb (Rb (Lb (CaseB e1 e2))))))))
-pattern LamFA e1 e2 = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Lb (LamB e1 e2)))))))))
-pattern PrimFA e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e))))))))))
-pattern ErrFA    = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB))))))))))
-pattern ScNameFA n =
-  (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (ScNameB n)))))))))))
-
-pattern BoundFAB e = (AB (Lb e))
-pattern CtorFAB e = (AB (Rb (Lb e)))
-pattern LitFAB e = (AB (Rb (Rb (Lb e))))
-pattern AppFAB e = (AB (Rb (Rb (Rb (Lb e)))))
-pattern LetFAB e = (AB (Rb (Rb (Rb (Rb (Lb e))))))
-pattern CaseFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Lb e)))))))
-pattern LamFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Lb e))))))))
-pattern PrimFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb e)))))))))
-pattern ErrFAB e  = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb e))))))))))
-pattern ScNameFAB e = (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb e))))))))))
-
-pattern AEBound x i = (FixB (AB (Lb (BoundB x i))))
-pattern AECtor e = (FixB (AB (Rb (Lb (CtorB e)))))
-pattern AELit e = (FixB (AB (Rb (Rb (Lb (LitB e))))))
-pattern AEApp e1 e2 = (FixB (AB (Rb (Rb (Rb (Lb (AppB e1 e2)))))))
-pattern AELet e1 e2 e3 = (FixB (AB (Rb (Rb (Rb (Rb (Lb (LetB e1 e2 e3))))))))
-pattern AECase e1 e2 = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Lb (CaseB e1 e2)))))))))
-pattern AELam e1 e2 =
-  (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Lb (LamB e1 e2))))))))))
-pattern AEPrim e = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e)))))))))))
-pattern AEErr    = (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB)))))))))))
-pattern AEScName n =
-  (FixB (AB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (ScNameB n))))))))))))
-
---------------------------------------------------------------------------------
--- Patterns for NLExpr
-
-pattern NLVar e = (FixB (NLEB (Lb (VarB e))))
-pattern NLCtor e = (FixB (NLEB (Rb (Lb (CtorB e)))))
-pattern NLLit e = (FixB (NLEB (Rb (Rb (Lb (LitB e))))))
-pattern NLApp e1 e2 = (FixB (NLEB (Rb (Rb (Rb (Lb (AppB e1 e2)))))))
-pattern NLLet e1 e2 e3 = (FixB (NLEB (Rb (Rb (Rb (Rb (Lb (LetB e1 e2 e3))))))))
-pattern NLPrim e = (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Lb (PrimB e)))))))))
-pattern NLErr = (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Rb (Lb ErrB)))))))))
-pattern NLSel e1 e2 =
-  (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Lb (GSelB e1 e2)))))))))))
-pattern NLGCase e =
-  (FixB (NLEB (Rb (Rb (Rb (Rb (Rb (Rb (Rb (Rb (GCaseB e)))))))))))
+                     -> [CSScDefn a]
+                     -> [NLScDefn a]
+liftSupercombinators main =
+  etaReduceScs main . deannotateScs . liftAScs . annotateScs

@@ -32,7 +32,7 @@ import Lang.Syntax
 import Core.Syntax
 import Data.List(nubBy)
 import PickFresh
-import qualified Data.Stream as SM
+import qualified Stream as SM
 
 type Equation a = ([Pattern a], CoreExpr a)
 type PMMonad v a = ReaderT [DataDecl v] (State [v]) a

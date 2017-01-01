@@ -27,7 +27,7 @@ import Data.Maybe (fromMaybe)
 import Control.Monad
 import qualified Data.Set as S
 import qualified Data.Map as M
-import Data.Stream hiding (map)
+import Stream hiding (map)
 import Types.Fin
 import AST (CtorName)
 

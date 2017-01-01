@@ -53,7 +53,7 @@ import Data.Graph.SCC(sccList)
 import Core.Syntax
 import Utils
 import AST
-import RecursionSchemes
+import Data.Comp.Bifun
 import Pair
 
 --------------------------------------------------------------------------------
@@ -62,7 +62,7 @@ import Pair
 depAnalysisTrans :: Ord a => CoreExpr a -> CoreExpr a
 depAnalysisTrans = para $ \case
   (ELetF Recursive b e) -> transformLetRec (fmap (fmap fst) b) (snd e)
-  e -> FixB . fmap snd $ e
+  e -> Term . fmap snd $ e
 
 --------------------------------------------------------------------------------
 -- Letrec dependency analysis and transformation

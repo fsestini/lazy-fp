@@ -2,7 +2,7 @@
 
 module PickFresh where
 
-import qualified Data.Stream as S
+import qualified Stream as S
 
 class PickFresh a where
   pickFresh :: [a] -> a
