@@ -1,4 +1,5 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeOperators,
+             KindSignatures, FlexibleContexts, RankNTypes #-}
 
 import Debug.Trace
 import Control.Monad.Except
@@ -23,8 +24,7 @@ import AST
 import Types.Inference
 import Types.Schemes
 import Types.DataDecl
-
----
+import Data.Comp.Bifun
 
 main :: IO ()
 main = do
