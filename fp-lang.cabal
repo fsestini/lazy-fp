@@ -33,7 +33,6 @@ executable fp-lang
                      , Lang.Syntax
                      , Pair
                      , PickFresh
-                     , RecursionSchemes
                      , Types.DataDecl
                      , Types.Fin
                      , Types.IMonad
