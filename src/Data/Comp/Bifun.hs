@@ -4,7 +4,21 @@
              ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Data.Comp.Bifun where
+module Data.Comp.Bifun (
+    (:+:)(..)
+  , (:*:)(..)
+  , (:<:)
+  , (:=:)
+  , inj
+  , prj
+  , inject
+  , cata
+  , para
+  , cataM
+  , split
+  , Term(..)
+  , caseB
+  ) where
 
 import Control.Monad
 import Data.Proxy
