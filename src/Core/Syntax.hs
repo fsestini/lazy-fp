@@ -19,7 +19,7 @@ import AST
 type CoreExpr = FixB CoreExprBase
 type CoreAlter a = AlterB a (CoreExpr a)
 type CoreBinder a = BinderB a (CoreExpr a)
-type CoreScDefn a = (a, [a], CoreExpr a)
+type CoreScDefn a = (a, CoreExpr a)
 
 type CoreExprBaseB = VarB :++: CtorB :++: LitB :++: AppB :++: LetB :++: CaseB
                      :++: LamB :++: PrimB :++: ErrB

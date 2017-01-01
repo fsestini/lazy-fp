@@ -2,11 +2,16 @@
 
 module PickFresh where
 
+import qualified Data.Stream as S
+
 class PickFresh a where
   pickFresh :: [a] -> a
 
-freshStream :: PickFresh a => [a] -> [a]
-freshStream l = let x = pickFresh l in x : freshStream (x : l)
+freshStream :: PickFresh a => [a] -> S.Stream a
+freshStream used = let x = pickFresh used in S.Cons x (freshStream (x : used))
+
+pickNTh :: PickFresh a => Int -> a
+pickNTh n = pickFresh $ S.take n (freshStream [])
 
 instance PickFresh String where
   pickFresh strings = tryString strings 0

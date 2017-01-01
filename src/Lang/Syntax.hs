@@ -1,5 +1,5 @@
-{-# LANGUAGE DeriveFoldable, GeneralizedNewtypeDeriving, DeriveFunctor,
-             StandaloneDeriving, TypeOperators, PatternSynonyms,
+{-# LANGUAGE DeriveFoldable, DeriveTraversable, GeneralizedNewtypeDeriving,
+             DeriveFunctor, StandaloneDeriving, TypeOperators, PatternSynonyms,
              TemplateHaskell #-}
 
 module Lang.Syntax where
@@ -10,6 +10,8 @@ import Data.List(nub)
 import qualified Data.List.NonEmpty as NE (toList, NonEmpty(..))
 import Control.Arrow((&&&))
 import AST
+import Types.DataDecl
+import Types.Schemes
 import Data.Bifunctor
 import Data.Bifunctor.TH
 import Data.Bifoldable
@@ -21,12 +23,7 @@ import Data.Bitraversable
 data Pattern a = PVar a
                | PInt Int
                | PCtor CtorName [Pattern a]
-               deriving (Eq, Ord, Show, Functor, Foldable)
-
-instance Traversable Pattern where
-  traverse f (PVar x) = PVar <$> f x
-  traverse _ (PInt n) = pure $ PInt n
-  traverse f (PCtor name ps) = PCtor name <$> sequenceA (map (traverse f) ps)
+               deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 data PatternBinderB a b = PBinderB (Pattern a) b deriving (Eq, Ord, Show)
 $(deriveBifunctor ''PatternBinderB)
@@ -50,9 +47,8 @@ instance Bitraversable LangExprBase where
   bitraverse f g (LEB t) = LEB <$> bitraverse f g t
 
 type LangExpr = FixB LangExprBase
-type LangProgram a = [Either DataDecl (LangExpr a)]
-type DataDecl = (CtorName, NE.NonEmpty CtorDecl)
-type CtorDecl = (CtorName, NE.NonEmpty CtorName)
+-- TODO: LangProgram should probably be a bifunctor: LangProgram a v
+type LangProgram a = [Either (DataDecl a) (LangExpr a)]
 type LangAlter a = AlterB a (LangExpr a)
 type ScDefn a = (a, [Pattern a], LangExpr a)
 
@@ -71,9 +67,10 @@ chunkByName defns = flip map names $ \name ->
   where
     names = getScNames defns
 
-termConstructors :: DataDecl -> [(CtorName, Int)]
-termConstructors (_,decls) =
-  map (fst &&& (length . snd)) (NE.toList decls) -- TODO: extremely naive. fix
+-- TODO: extremely naive. fix
+termConstructors :: DataDecl a -> [(CtorName, Int)]
+termConstructors (_, _, decls) =
+  map (fst &&& (schemeArity . snd)) (NE.toList decls)
 
 patternFreeVars :: Pattern a -> [a]
 patternFreeVars = foldr (:) []

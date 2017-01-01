@@ -1,5 +1,8 @@
-import GMachine.Main
+{-# LANGUAGE ScopedTypeVariables #-}
 
+import Debug.Trace
+import Control.Monad.Except
+import GMachine.Main
 import Core.DependencyAnalysis
 import Control.Monad.Reader
 import Control.Monad.State
@@ -16,47 +19,55 @@ import Control.Monad
 import Lang.PatternCompiler
 import Core.Pretty
 import Core.Translation
+import AST
+import Types.Inference
+import Types.Schemes
+import Types.DataDecl
 
 ---
-
--- str = "data Nat where\n  Zero : Nat ;\n  Succ : Nat -> Nat\n\n%\n\nf Zero = 10\n%\nf (Succ n) = 20\n\n%\n\nmain = 30\n"
---
--- dataDecls = fst . partitionEithers . parseProgram . scanTokens $ str
--- scDecls = snd . partitionEithers . parseProgram . scanTokens $ str
--- chunked = chunkByName scDecls
---
--- azdazd name stuff = do
---   let e = translateSc dataDecls stuff
---   putStrLn $ name ++ " = " ++ render (pExpr e)
---
--- stuffOfF = snd $ head chunked
---
--- translated :: [Equation String]
--- translated = map (second translateToCore) stuffOfF
---
--- (Just ctorEqs) = allStartWithCtor translated
--- groups = groupByCtor ctorEqs
--- definedAlters = mapM (groupToAlter ["y"] EError) groups
---
--- m = ctorRule ("x" :| []) translated ctorEqs EError
--- (ECase e a) = evalState (runReaderT m dataDecls) ["n"]
-
----
-
 
 main :: IO ()
 main = do
   str <- readAll
   putStrLn . runShow . concat $ interleave str " ; "
 
+getCoreScs :: FilePath -> IO [CoreScDefn String]
+getCoreScs filePath = do
+  file <- readFile filePath
+  let (dataDecls, chunked) = parseAndChunk file
+      coreScs = map (uncurry (toCoreSc dataDecls)) chunked
+  return coreScs
+
+printTypedCore :: FilePath -> IO ()
+printTypedCore filePath = do
+  file <- readFile filePath
+  let (dataDecls, chunked) = parseAndChunk file
+      coreScs = map (uncurry (toCoreSc dataDecls)) chunked
+  case runExcept $ inferCoreScDefns dataDecls coreScs of
+    (Left x) -> putStrLn $ "error: " ++ x
+    (Right things) -> forM_ things $ \((name, e), ty :: TypeScheme String) -> do
+      putStrLn $ name ++ " : " ++ show ty
+      putStrLn $ name ++ " = " ++ render (pExpr e)
+
 printCoreRepr :: FilePath -> IO ()
 printCoreRepr filePath = do
   file <- readFile filePath
-  let (dataDecls, scDecls) = partitionEithers . parseProgram . scanTokens $ file
-      chunked = chunkByName scDecls
-  forM_ chunked $ \(name, stuff) -> do
-    let e = depAnalysisTrans $ translateSc dataDecls stuff
-    putStrLn $ name ++ " = " ++ render (pExpr e)
+  let (dataDecls, chunked) = parseAndChunk file
+      coreScs = map (uncurry (toCoreSc dataDecls)) chunked
+  forM_ coreScs $ \(name, e) -> putStrLn $ name ++ " = " ++ render (pExpr e)
+
+toCoreSc :: [DataDecl String]
+         -> String
+         -> [([Pattern String], LangExpr String)]
+         -> CoreScDefn String
+toCoreSc datadecls scName defn =
+  (scName, depAnalysisTrans $ translateSc datadecls defn)
+
+parseAndChunk :: String
+              -> ([DataDecl String], [(String, [([Pattern String], LangExpr String)])])
+parseAndChunk text = (dataDecls, chunkByName scDecls)
+  where (dataDecls, scDecls) =
+          partitionEithers . parseProgram . scanTokens $ text
 
 readAll :: IO [String]
 readAll = do

@@ -3,6 +3,7 @@
 
 module AST where
 
+import Pair
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as S
 import Data.Bifunctor
@@ -35,6 +36,7 @@ instance (Bitraversable t1, Bitraversable t2)
 
 type Name = String
 type CtorName = Name
+type CtorArity = Int
 
 data BinderB a b = BinderB a b deriving (Eq, Ord, Show)
 $(deriveBifunctor ''BinderB)
@@ -45,6 +47,11 @@ data AlterB a b = AlterB CtorName [a] b deriving (Eq, Ord, Show)
 $(deriveBifunctor ''AlterB)
 $(deriveBifoldable ''AlterB)
 $(deriveBitraversable ''AlterB)
+
+instance Pair BinderB where
+  pFst (BinderB x _) = x
+  pSnd (BinderB _ x) = x
+  fromPair = uncurry BinderB
 
 data LetMode = NonRecursive | Recursive deriving (Eq, Ord, Show)
 data Lit = LInt Int deriving (Show, Eq, Ord)

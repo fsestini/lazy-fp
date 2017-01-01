@@ -14,9 +14,10 @@ import Lang.Syntax as L
 import Core.Syntax
 import Data.List.NonEmpty as NE (NonEmpty(..), toList)
 import Lang.PatternCompiler
+import Types.DataDecl
 
 translateSc :: (Show a, Ord a, PickFresh a)
-            => [DataDecl]
+            => [DataDecl a] -- TODO: this type var should probably be different
             -> [([Pattern a], LangExpr a)]
             -> CoreExpr a
 translateSc decls things =
