@@ -174,6 +174,18 @@ paraSplitM :: (f :=: f1 :+: f2, Bifunctor f,
      -> Term f a -> m b
 paraSplitM alg1 alg2 alg3 alg4 t = undefined
 
+para :: (Bifunctor f) => (f a (Term f a, b) -> b)
+                      -> Term f a -> b
+para f = snd . cata run
+  where run t = (Term $ bimap id fst t, f t)
+
+paraM :: (Bitraversable f, Monad m) =>
+         (f a (Term f a, b) -> m b) -> Term f a -> m b
+paraM f = fmap snd . cataM run
+    where run t = do
+            a <- f t
+            return (Term $ bimap id fst t, a)
+
 --------------------------------------------------------------------------------
 -- Products
 
