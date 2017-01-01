@@ -40,6 +40,10 @@ executable fp-lang
                      , Types.Schemes
                      , Types.Unification
                      , Utils
+                     , Data.Comp.Bifun
+                     , MonadVar
+                     , PrettyClass
+                     , Stream
   -- other-extensions:
   build-depends:       base >=4.9 && <4.10
                      , mtl
