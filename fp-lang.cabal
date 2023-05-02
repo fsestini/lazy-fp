@@ -45,7 +45,7 @@ executable fp-lang
                      , PrettyClass
                      , Stream
   -- other-extensions:
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.9 && <4.17
                      , mtl
                      , parsec
                      , pretty
