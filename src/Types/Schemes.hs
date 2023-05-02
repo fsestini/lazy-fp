@@ -57,11 +57,11 @@ instance Functor (Monotype n) where
   fmap _ (MBound x) = MBound x
 
 instance Applicative (Monotype n) where
-  pure = return
+  pure = MFree
   (<*>) = ap
 
 instance Monad (Monotype n) where
-  return = MFree
+  return = pure
   (MFree x) >>= f = f x
   (MBound x) >>= _ = MBound x
   (MCtor name tys) >>= f = MCtor name (fmap (f =<<) tys)
