@@ -11,9 +11,11 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Arrow (first, second)
+import Control.Category (Category(..))
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Stream as SM
+import Prelude hiding ((.))
 
 type IMonad v a b = ReaderT (TypeContext v a, DataCtors a)
                               (StateT (TySubst a a, SM.Stream a)
@@ -73,7 +75,7 @@ setSub sub = do
 pushSub :: TySubst a a -> IMonad v a ()
 pushSub sub = do
   cSub <- currentSub
-  setSub $ sub <> cSub
+  setSub $ sub . cSub
 
 currentSub :: IMonad v a (TySubst a a)
 currentSub = fst <$> get
@@ -109,7 +111,7 @@ applyCurrentSub ty = do
 applyCurrentSubV :: a -> IMonad v a (Type a)
 applyCurrentSubV x = do
   cSub <- currentSub
-  return $ cSub x
+  return $ applyTS cSub x
 
 schemeOfVar :: _ => v -> IMonad v a (TypeScheme a)
 schemeOfVar x = do

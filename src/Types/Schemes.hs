@@ -7,11 +7,9 @@ module Types.Schemes(
   TypeScheme,
   fullyInst,
   generalize,
-  TySubst,
+  TySubst(..),
   subType,
-  (<>),
   deltaSub,
-  idSub,
   occurs,
   schemeSub,
   schemeFreeVars,
@@ -22,6 +20,7 @@ module Types.Schemes(
   schemeArity
 ) where
 
+import Prelude hiding ((.))
 import PickFresh
 import Data.Maybe (fromMaybe)
 import Control.Monad
@@ -30,6 +29,7 @@ import qualified Data.Map as M
 import Stream hiding (map)
 import Types.Fin
 import AST (CtorName)
+import Control.Category (Category (..))
 
 infixr 5 -->
 (-->) :: Monotype n a -> Monotype n a -> Monotype n a
@@ -130,21 +130,18 @@ genericVars ctxt = S.filter (\x -> not (S.member x ctxt)) . monoFreeVars
 generalize :: Ord a => S.Set a -> Type a -> TypeScheme a
 generalize ctxt mono = S.foldr abstract (SMono mono) (genericVars ctxt mono)
 
-type TySubst a b = a -> Type b
+newtype TySubst a b = TySubst { applyTS :: a -> Type b }
+
+instance Category TySubst where
+  id = TySubst return
+  TySubst f . TySubst g = TySubst (f <=< g)
 
 subType :: TySubst a b -> Monotype n a -> Monotype n b
-subType f = ((raiseMono . f) =<<)
-
-infixl 5 <>
-(<>) :: TySubst b c -> TySubst a b -> TySubst a c
-(<>) = (<=<)
+subType f = ((raiseMono . applyTS f) =<<)
 
 deltaSub :: Eq a => a -> Type a -> TySubst a a
-deltaSub x ty y | x == y = ty
-                | otherwise = return y
-
-idSub :: TySubst a a
-idSub = return
+deltaSub x ty = TySubst $ \y ->
+  if x == y then ty else return y
 
 occurs :: Ord a => a -> Type a -> Bool
 occurs x ty = S.member x $ monoFreeVars ty

@@ -9,6 +9,7 @@ import Pair
 import PickFresh
 import Control.Arrow(second)
 import Control.Monad.Except
+import Control.Category (Category(..))
 import qualified Stream as SM
 import qualified Data.Map as M
 import qualified Data.List.NonEmpty as NE
@@ -18,6 +19,7 @@ import Types.DataDecl
 import Types.Fin
 import Core.Syntax
 import Core.DependencyAnalysis
+import Prelude hiding (id, (.))
 
 -- TODO change this:
 -- it is better to use a GADT where type constructors parameterized
@@ -77,7 +79,7 @@ inferCoreScDefns :: forall a v . (Ord a, Ord v, Show v, PickFresh a, Show a)
                  -> Except String [(CoreScDefn v, TypeScheme a)]
 inferCoreScDefns decls defns = do
   dc <- fromDataDecls decls
-  fst <$> runIMonad M.empty dc idSub (freshStream [] :: SM.Stream a) inferred
+  fst <$> runIMonad M.empty dc id (freshStream [] :: SM.Stream a) inferred
   where depAn = map (second depAnalysisTrans) defns
         classified = classifyDefns depAn
         inferred = inferClassifications classified
