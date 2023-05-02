@@ -116,7 +116,7 @@ applyCurrentSubV x = do
 schemeOfVar :: _ => v -> IMonad v a (TypeScheme a)
 schemeOfVar x = do
   gamma <- context
-  maybe (fail errMsg) applyCurrentSubS (M.lookup x gamma)
+  maybe (throwError errMsg) applyCurrentSubS (M.lookup x gamma)
   where errMsg = "symbol " ++ show x ++ " not in context"
 
 newVar :: IMonad v a a

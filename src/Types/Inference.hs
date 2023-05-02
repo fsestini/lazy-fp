@@ -38,10 +38,10 @@ checkArities decls (SMono mono) = checkArities' mono
     checkArities' (MBound _) = return ()
     checkArities' (MCtor name tys) =
       case M.lookup name aritiesMap of
-        Nothing -> fail $ name ++ "type constructor " ++ name ++ " not in scope"
+        Nothing -> throwError $ name ++ "type constructor " ++ name ++ " not in scope"
         (Just arity) -> if arity == length tys
           then forM_ tys checkArities'
-          else fail $ "type constructor " ++ name ++ " has arity "
+          else throwError $ "type constructor " ++ name ++ " has arity "
                ++ show arity ++ ", but it was applied to "
                ++ show (length tys) ++ " types"
 
@@ -49,7 +49,7 @@ checkReturnType :: CtorName -> Scheme n a -> Except String ()
 checkReturnType parentTyName (SForall sc) = checkReturnType parentTyName sc
 checkReturnType parentTyName (SMono mono) = checkReturnType' mono
   where
-    failure = fail $ "data constructor for type " ++ parentTyName
+    failure = throwError $ "data constructor for type " ++ parentTyName
               ++ " should return an element of type " ++ parentTyName
     checkReturnType' (MFree _) = failure
     checkReturnType' (MBound _) = failure
@@ -144,7 +144,7 @@ inferAlters a scrType = flip foldr1 (fmap (inferAlter scrType) a) $
     applyCurrentSub t2
 
 inferCtor :: _ => CtorName -> IMonad v a (Type a)
-inferCtor name = dataCtors >>= maybe (fail errMsg) fullyInstM . M.lookup name
+inferCtor name = dataCtors >>= maybe (throwError errMsg) fullyInstM . M.lookup name
   where errMsg = "data constructor " ++ name ++ " not in scope"
 
 inferVar :: _ => v -> IMonad v a (Type a)
