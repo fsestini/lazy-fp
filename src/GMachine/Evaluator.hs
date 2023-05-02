@@ -42,10 +42,10 @@ setCode :: GMCode -> GMStateMonad ()
 setCode c = get >>= \s -> put $ s { code = c }
 
 prependCode :: GMCode -> GMStateMonad ()
-prependCode c = fromStTrans $ \s -> s { code = c ++ code s }
+prependCode c = fromStTrans $ \s -> s { code = c ++ code s }
 
 setStack :: GMStack -> GMStateMonad ()
-setStack st = get >>= \s -> put $ s { stack = st }
+setStack st = get >>= \s -> put $ s { stack = st }
 
 setDump :: GMDump -> GMStateMonad ()
 setDump d = get >>= \s -> put $ s { dump = d }
