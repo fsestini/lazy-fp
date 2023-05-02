@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module GMachine.Evaluator(
   GMStateMonad,
   eval
@@ -22,6 +24,18 @@ fromStTrans f = do
 
 getStack :: GMStateMonad GMStack
 getStack = fmap stack get
+
+-- | Attempt to get data from a non-empty stack. Fails with an exception if the
+-- stack is empty.
+getNEStack :: GMStateMonad (Addr, GMStack)
+getNEStack = getStack >>= \case
+  [] -> error "panic! the impossible happened. attempted to peek an empty stack"
+  (x : xs) -> return (x,xs)
+
+getNECode :: GMStateMonad (Instruction, [Instruction])
+getNECode = getCode >>= \case
+  [] -> error "panic! the impossible happened. attempted to retrieve non-existing code"
+  (x : xs) -> return (x, xs)
 
 getDump :: GMStateMonad GMDump
 getDump  = fmap dump  get
@@ -57,10 +71,7 @@ pushOnDump :: GMDumpItem -> GMStateMonad ()
 pushOnDump di = fromStTrans $ \s -> s { dump = di : dump s }
 
 popStack :: GMStateMonad Addr
-popStack = do
-  (a : as) <- fmap stack get
-  setStack as
-  return a
+popStack = getNEStack >>= \(a,as) -> setStack as >> return a
 
 peekStack :: Int -> GMStateMonad Addr
 peekStack n = do
@@ -68,10 +79,8 @@ peekStack n = do
   return $ s !! n
 
 popInstruction :: GMStateMonad Instruction
-popInstruction = do
-  (c : cs) <- fmap code get
-  fromStTrans $ \s -> s { code = cs }
-  return c
+popInstruction = getNECode >>= \(c,cs) ->
+  fromStTrans (\s -> s { code = cs }) >> return c
 
 putGlobals :: (Name, Addr) -> GMStateMonad ()
 putGlobals p = fromStTrans $ \s -> s { globals = p : globals s }
@@ -155,9 +164,8 @@ evalPrint = do
     _                   -> error "evalPrint failed"
 
 eval' :: GMStateMonad ()
-eval' = do
-  (a : s) <- getStack
-  i       <- getCode
+eval' = getNEStack >>= \(a, s) -> do
+  i <- getCode
   pushOnDump (i,s)
   setStack [a]
   setCode [Unwind]
@@ -216,9 +224,7 @@ push n = do
   pushOnStack addr
 
 slide :: Int -> GMStateMonad ()
-slide n = do
-  (a : st) <- getStack
-  setStack $ a : drop n st
+slide n = getNEStack >>= \(a,st) -> setStack $ a : drop n st
 
 unwind :: GMStateMonad ()
 unwind = do
