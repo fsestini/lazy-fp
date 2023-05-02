@@ -78,20 +78,20 @@ pushSub sub = do
   setSub $ sub . cSub
 
 currentSub :: IMonad v a (TySubst a a)
-currentSub = fst <$> get
+currentSub = gets fst
 
 freeTypeVarsInContext :: Ord a => IMonad v a (S.Set a)
 freeTypeVarsInContext =
   M.foldr S.union S.empty . M.map schemeFreeVars <$> context
 
 context :: IMonad v a (TypeContext v a)
-context = fst <$> ask
+context = asks fst
 
 dataCtors :: IMonad v a (DataCtors a)
-dataCtors = snd <$> ask
+dataCtors = asks snd
 
 getStream :: IMonad v a (SM.Stream a)
-getStream = snd <$> get
+getStream = gets snd
 
 putStream :: SM.Stream a -> IMonad v a ()
 putStream str = do

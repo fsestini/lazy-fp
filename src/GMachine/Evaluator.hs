@@ -259,7 +259,7 @@ type Boxing   a = a    -> GMStateMonad ()
 type Unboxing a = Addr -> GMStateMonad a
 
 primitive1 :: Boxing b -> Unboxing a -> (a -> b) -> GMStateMonad ()
-primitive1 box unbox op = op <$> (popStack >>= unbox) >>= box
+primitive1 box unbox op = (popStack >>= unbox) >>= box . op
 
 primitive2 :: Boxing b -> Unboxing a -> (a -> a -> b) -> GMStateMonad ()
 primitive2 box unbox op =

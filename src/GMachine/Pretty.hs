@@ -1,7 +1,7 @@
 module GMachine.Pretty where
 
 --- import Text.PrettyPrint.HughesPJClass
-import Text.PrettyPrint
+import Text.PrettyPrint (Doc, text, cat, vcat, nest, int, hsep, punctuate, semi, parens, brackets, comma, braces)
 
 import GMachine.Syntax hiding (Div)
 import Heap
@@ -116,7 +116,7 @@ pStats s = hsep [text "Steps taken =", int $ statGetSteps (stats s)]
 pResults :: [GMState] -> Doc
 pResults states@(s : ss) =
   vcat $  text "Superc. definitions" : map (nest 2 . pSC s) (globals s)
-      ++  text "State transitions"   : map (nest 2 . asd) (zip [1..] states)
+      ++  text "State transitions"   : zipWith (curry (nest 2 . asd)) [1..] states
       ++ [text "Stats: "            <> pStats (last states)]
   where
     asd :: (Int, GMState) -> Doc
