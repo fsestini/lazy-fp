@@ -1,4 +1,5 @@
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Heap(
   hInitial,
@@ -47,10 +48,10 @@ hInitial = Heap 0 [1..] []
 
 -- Modification functions
 hAlloc :: a -> HeapState a Addr
-hAlloc node = do
-  Heap size (next : free) cts <- get
-  put (Heap (size+1) free ((next,node) : cts))
-  return next
+hAlloc node = get >>= \case
+  Heap size (next : free) cts -> do
+    put (Heap (size+1) free ((next,node) : cts))
+    return next
 
 hUpdate :: Addr -> a -> HeapState a ()
 hUpdate addr node = do
