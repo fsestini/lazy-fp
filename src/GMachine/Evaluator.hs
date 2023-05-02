@@ -139,10 +139,10 @@ dispatch (Pack tag arity) = pack tag arity
 dispatch (CaseJump alternatives) = casejump alternatives
 
 casejump :: Assoc Int GMCode -> GMStateMonad ()
-casejump alterns = do
-  (NConstr tag _) <- peekStack 0 >>= changeHeap . hLookup'
-  let branch = aLookup alterns tag (error "casejump failed")
-  prependCode branch
+casejump alterns = peekStack 0 >>= changeHeap . hLookup' >>= \case
+  (NConstr tag _) ->
+    let branch = aLookup alterns tag (error "casejump failed")
+    in prependCode branch
 
 pack :: CtorTag -> CtorArity -> GMStateMonad ()
 pack tag arity = do
@@ -150,9 +150,8 @@ pack tag arity = do
   changeHeap (hAlloc (NConstr tag addrs)) >>= pushOnStack
 
 split :: Int -> GMStateMonad ()
-split _ = do
-  (NConstr _ addrs) <- popStack >>= changeHeap . hLookup'
-  forM_ (reverse addrs) pushOnStack
+split _ = popStack >>= changeHeap . hLookup' >>= \case
+  (NConstr _ addrs) -> forM_ (reverse addrs) pushOnStack
 
 evalPrint :: GMStateMonad ()
 evalPrint = do
@@ -283,9 +282,8 @@ boxInteger n = do
   pushOnStack a
 
 unboxInteger :: Addr -> GMStateMonad Int
-unboxInteger addr = do
-  (NNum i) <- changeHeap $ hLookup' addr
-  return i
+unboxInteger addr = changeHeap $ hLookup' addr >>= \case
+  (NNum i) -> return i
 
 --------------------------------------------------------------------------------
 -- Boolean operations
