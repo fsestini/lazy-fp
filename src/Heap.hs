@@ -85,9 +85,7 @@ hAddresses :: Heap a -> [Addr]
 hAddresses (Heap _ _ cts) = map fst cts
 
 hAddresses' :: HeapState a [Addr]
-hAddresses' = do
-  heap <- get
-  return $ hAddresses heap
+hAddresses' = gets hAddresses
 
 hSize :: Heap a -> Int
 hSize (Heap size _ _) = size
