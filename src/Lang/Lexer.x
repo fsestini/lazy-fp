@@ -46,6 +46,7 @@ tokens :-
   primEql                       { \s -> TokenPrimOp Eql }
   $digit+                       { \s -> TokenNum (read s) }
   "->"                          { \s -> TokenArrow }
+  ty                            { \s -> TokenType }
   \=                            { \s -> TokenEq }
   \\                            { \s -> TokenLambda }
   \;                            { \s -> TokenSemi }
@@ -76,6 +77,7 @@ data Token
   | TokenSym String
   | TokenPrimOp PrimOp
   | TokenCtor String
+  | TokenType
   | TokenArrow
   | TokenEq
   | TokenAdd

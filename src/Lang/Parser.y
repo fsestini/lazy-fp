@@ -4,7 +4,7 @@ module Lang.Parser where
 
 import Control.Monad.Except
 import Data.List.NonEmpty
-import Lang.Lexer
+import Lang.Lexer (Token(..))
 import Lang.Syntax
 import AST
 import qualified Data.Set as S
@@ -33,6 +33,7 @@ import Control.Monad.Except
     prim     { TokenPrimOp $$ }
     '\\'     { TokenLambda }
     '->'     { TokenArrow }
+    ty       { TokenType }
     '='      { TokenEq }
     '+'      { TokenAdd }
     '-'      { TokenSub }
@@ -62,8 +63,8 @@ CtorDecl : CTOR colon Type           { ($1, generalize S.empty $3) }
 
 Sc   : VAR list(Pat) '=' Expr                { ($1, $2, $4) }
 
-Kind : '*'                              { KStar1 }
-     | '*' '->' Kind                    { KArrow1 $3 }
+Kind : ty                              { KStar1 }
+     | ty '->' Kind                    { KArrow1 $3 }
 
 Type  : AType '->' Type                      { ArrowTy $1 $3 }
       | AType                                { $1 }
