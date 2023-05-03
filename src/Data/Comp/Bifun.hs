@@ -125,8 +125,8 @@ instance (Bifoldable f, Bifoldable g) => Bifoldable (f :+: g) where
   bifoldr f g z (Inr x) = bifoldr f g z x
 
 instance (Bitraversable f, Bitraversable g) => Bitraversable (f :+: g) where
-  bitraverse f g (Inl x) = undefined
-  bitraverse f g (Inr x) = undefined
+  bitraverse f g (Inl x) = Inl <$> bitraverse f g x
+  bitraverse f g (Inr x) = Inr <$> bitraverse f g x
 
 instance (Bifunctor f1, Bifunctor f2) => Bifunctor (f1 :*: f2) where
   bimap f g (x1 :*: x2) = bimap f g x1 :*: bimap f g x2
@@ -153,13 +153,16 @@ instance Bifoldable p => Foldable (Term p) where
   foldr f z (Term t) = bifoldr f (flip (foldr f)) z t
 
 instance (Eq (p a b), Eq (q a b)) => Eq ((p :+: q) a b) where
-  t1 == t2 = undefined
+  Inl t1 == Inl t2 = t1 == t2
+  Inl _ == Inr _ = False
+  Inr _ == Inl _ = False
+  Inr t1 == Inr t2 = t1 == t2
 
 --------------------------------------------------------------------------------
 -- Utility functions
 
 cata :: Bifunctor p => (p a b -> b) -> Term p a -> b
-cata alg = alg . bimap id (cata alg) . unTerm
+cata alg = alg . second (cata alg) . unTerm
 
 cataM :: (Bitraversable f, Monad m) => (f a b -> m b) -> Term f a -> m b
 cataM algM (Term t) = algM <=< bimapM return (cataM algM) $ t
