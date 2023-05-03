@@ -6,7 +6,7 @@ module Lang.Syntax where
 
 import Data.Comp.Bifun
 import Data.Set(Set, empty, singleton, union)
-import Data.List(nub)
+import Data.List(nub, union)
 import qualified Data.List.NonEmpty as NE (toList, NonEmpty(..))
 import Control.Arrow((&&&))
 import AST
@@ -75,8 +75,7 @@ patternFreeVars :: Pattern a -> [a]
 patternFreeVars = foldr (:) []
 
 allVars :: Ord a => LangExpr a -> Set a
-allVars = error "Lang.Syntax.allVars to be defined"
-  -- foldr union empty . fmap singleton
+allVars = foldr Data.Set.union empty . fmap singleton
 
 --------------------------------------------------------------------------------
 -- Pattern synonyms
