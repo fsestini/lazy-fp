@@ -25,11 +25,16 @@ import Types.Inference
 import Types.Schemes
 import Types.DataDecl
 import Data.Comp.Bifun
+import System.Environment (getArgs)
+import Data.Maybe (listToMaybe)
 
 main :: IO ()
-main = do
-  str <- readAll
-  putStrLn . runShow . concat $ interleave str " ; "
+main = getArgs >>= maybe err printTypedCore . listToMaybe
+  where
+    err = putStrLn "Please provide a file path"
+-- main = do
+--   str <- readAll
+--   putStrLn . runShow . concat $ interleave str " ; "
 
 getCoreScs :: FilePath -> IO [CoreScDefn String]
 getCoreScs filePath = do
