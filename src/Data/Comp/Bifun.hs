@@ -184,12 +184,12 @@ splitAlg f g (Term t) = split f' g' t
     f' = f . second (splitAlg f g)
     g' = g . second (splitAlg f g)
 
-paraSplitM :: (f :=: f1 :+: f2, Bifunctor f,
-               Bitraversable f1, Bitraversable f2, Monad m)
-     => (forall a b . f1 a b -> f a b) -> (forall a b . f2 a b -> f a b)
-     -> (f1 a (Term f a, b) -> m b) -> (f2 a (Term f a, b) -> m b)
-     -> Term f a -> m b
-paraSplitM alg1 alg2 alg3 alg4 t = undefined
+-- paraSplitM :: (f :=: f1 :+: f2, Bifunctor f,
+--                Bitraversable f1, Bitraversable f2, Monad m)
+--      => (forall a b . f1 a b -> f a b) -> (forall a b . f2 a b -> f a b)
+--      -> (f1 a (Term f a, b) -> m b) -> (f2 a (Term f a, b) -> m b)
+--      -> Term f a -> m b
+-- paraSplitM alg1 alg2 alg3 alg4 t = undefined
 
 para :: (Bifunctor f) => (f a (Term f a, b) -> b)
                       -> Term f a -> b
