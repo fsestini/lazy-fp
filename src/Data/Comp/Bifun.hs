@@ -144,7 +144,7 @@ instance {-# OVERLAPS #-} (Bifoldable f) => Foldable (f a) where
   foldr = bifoldr (const id)
 
 instance {-# OVERLAPS #-} (Bitraversable f) => Traversable (f a) where
-  sequenceA = bisequenceA . bimap pure id
+  sequenceA = bisequenceA . first pure
 
 instance Bifunctor p => Functor (Term p) where
   fmap f (Term t) = Term $ bimap f (fmap f) t
@@ -181,8 +181,8 @@ splitAlg :: forall f f1 f2 a b .
          => (f1 a b -> b) -> (f2 a b -> b) -> Term f a -> b
 splitAlg f g (Term t) = split f' g' t
   where
-    f' = f . bimap id (splitAlg f g)
-    g' = g . bimap id (splitAlg f g)
+    f' = f . second (splitAlg f g)
+    g' = g . second (splitAlg f g)
 
 paraSplitM :: (f :=: f1 :+: f2, Bifunctor f,
                Bitraversable f1, Bitraversable f2, Monad m)
@@ -194,14 +194,14 @@ paraSplitM alg1 alg2 alg3 alg4 t = undefined
 para :: (Bifunctor f) => (f a (Term f a, b) -> b)
                       -> Term f a -> b
 para f = snd . cata run
-  where run t = (Term $ bimap id fst t, f t)
+  where run t = (Term $ second fst t, f t)
 
 paraM :: (Bitraversable f, Monad m) =>
          (f a (Term f a, b) -> m b) -> Term f a -> m b
 paraM f = fmap snd . cataM run
     where run t = do
             a <- f t
-            return (Term $ bimap id fst t, a)
+            return (Term $ second fst t, a)
 
 --------------------------------------------------------------------------------
 -- Products
