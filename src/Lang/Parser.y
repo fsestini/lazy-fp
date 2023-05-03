@@ -112,8 +112,7 @@ sepBy(p,q)  : p                              { $1 :| [] }
 
 {
 
--- parseError :: [Token] -> a
--- parseError _ = error "parse error"
+parseError :: [Token] -> a
 parseError [] = error "unexpected end of input"
 parseError (l:ls) = error $ show l
 
